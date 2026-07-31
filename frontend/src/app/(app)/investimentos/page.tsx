@@ -5,6 +5,8 @@ import { Plus, Trash2 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { useInstancias } from "@/contexts/InstanciasContext";
 import { formatarMoeda } from "@/lib/format";
+import { centavosParaNumero } from "@/lib/moeda";
+import { CampoMoeda } from "@/components/dominium/CampoMoeda";
 import { PALETA_INSTANCIA, COR_SUGERIDA_POR_GRUPO } from "@/lib/cores";
 import type { ContaInvestimento, Instancia } from "@/lib/types";
 
@@ -205,14 +207,14 @@ function ModalFluxo({
   onSalvo: () => void;
 }) {
   const [descricao, setDescricao] = useState(tipo === "aporte" ? "Aporte" : "Resgate");
-  const [valor, setValor] = useState("");
+  const [valorCentavos, setValorCentavos] = useState(0);
   const [erro, setErro] = useState("");
   const [salvando, setSalvando] = useState(false);
 
   async function salvar(e: React.FormEvent) {
     e.preventDefault();
     setErro("");
-    const valorNumerico = parseFloat(valor.replace(",", "."));
+    const valorNumerico = centavosParaNumero(valorCentavos);
     if (!valorNumerico || valorNumerico <= 0) {
       setErro("Informe um valor maior que zero.");
       return;
@@ -243,15 +245,7 @@ function ModalFluxo({
           <input className="input-dominium" value={descricao} onChange={(e) => setDescricao(e.target.value)} required />
         </div>
         <div className="mb-5">
-          <label className="mb-1 block text-sm text-cream-100/80">Valor</label>
-          <input
-            className="input-dominium tabular"
-            inputMode="decimal"
-            value={valor}
-            onChange={(e) => setValor(e.target.value)}
-            autoFocus
-            required
-          />
+          <CampoMoeda label="Valor" valorCentavos={valorCentavos} onChange={setValorCentavos} autoFocus required />
         </div>
         {erro && <p className="mb-3 text-sm text-danger">{erro}</p>}
         <div className="flex gap-2">

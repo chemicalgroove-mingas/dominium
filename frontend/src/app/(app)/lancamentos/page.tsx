@@ -7,14 +7,16 @@ import { useInstancias } from "@/contexts/InstanciasContext";
 import { useRecorte } from "@/contexts/RecorteContext";
 import { JanelaSelector } from "@/components/dominium/JanelaSelector";
 import { ResumoDashboard } from "@/components/dominium/ResumoDashboard";
+import { CampoMoeda } from "@/components/dominium/CampoMoeda";
 import { formatarMoeda } from "@/lib/format";
 import { mesAtual } from "@/lib/mes";
+import { centavosParaNumero, numeroParaCentavos } from "@/lib/moeda";
 import { PALETA_INSTANCIA, COR_SUGERIDA_POR_GRUPO } from "@/lib/cores";
 import type { DashboardData, Grupo, Instancia, Lancamento, TipoLancamento } from "@/lib/types";
 
 const FORM_VAZIO = {
   descricao: "",
-  valor: "",
+  valorCentavos: 0,
   tipo: "fixo" as TipoLancamento,
   parcelas: "",
   mesInicio: mesAtual(),
@@ -42,7 +44,7 @@ export default function LancamentosPage() {
   const [form, setForm] = useState(FORM_VAZIO);
   const [erroForm, setErroForm] = useState("");
   const [salvando, setSalvando] = useState(false);
-  const [editando, setEditando] = useState<{ id: string; valor: string } | null>(null);
+  const [editando, setEditando] = useState<{ id: string; valorCentavos: number } | null>(null);
 
   const [gavetas, setGavetas] = useState<Record<string, DadosGaveta>>({});
   const [resumo, setResumo] = useState<DashboardData | null>(null);
@@ -116,7 +118,7 @@ export default function LancamentosPage() {
     if (!instanciaFoco) return;
     setErroForm("");
 
-    const valorNumerico = parseFloat(form.valor.replace(",", "."));
+    const valorNumerico = centavosParaNumero(form.valorCentavos);
     if (!valorNumerico || valorNumerico <= 0) {
       setErroForm("Informe um valor maior que zero.");
       return;
@@ -154,7 +156,7 @@ export default function LancamentosPage() {
 
   async function salvarEdicao() {
     if (!editando) return;
-    const valorNumerico = parseFloat(editando.valor.replace(",", "."));
+    const valorNumerico = centavosParaNumero(editando.valorCentavos);
     if (!valorNumerico || valorNumerico <= 0) return;
     await api.put(`/api/lancamentos/${editando.id}`, { valor: valorNumerico });
     setEditando(null);
@@ -258,17 +260,12 @@ export default function LancamentosPage() {
                 />
               </div>
 
-              <div>
-                <label className="mb-1 block text-sm text-cream-100/80">Valor (parcela/mensalidade)</label>
-                <input
-                  className="input-dominium tabular"
-                  inputMode="decimal"
-                  placeholder="0,00"
-                  value={form.valor}
-                  onChange={(e) => setForm({ ...form, valor: e.target.value })}
-                  required
-                />
-              </div>
+              <CampoMoeda
+                label="Valor (parcela/mensalidade)"
+                valorCentavos={form.valorCentavos}
+                onChange={(valorCentavos) => setForm({ ...form, valorCentavos })}
+                required
+              />
 
               <div className="grid grid-cols-2 gap-2">
                 <button
@@ -437,8 +434,8 @@ function GavetaCard({
   labelLancar?: string;
   onLancar?: () => void;
   onExcluirInstancia: () => void;
-  editando: { id: string; valor: string } | null;
-  setEditando: (v: { id: string; valor: string } | null) => void;
+  editando: { id: string; valorCentavos: number } | null;
+  setEditando: (v: { id: string; valorCentavos: number } | null) => void;
   onSalvarEdicao: () => void;
   onExcluirLancamento: (id: string) => void;
   sticky?: boolean;
@@ -504,10 +501,10 @@ function GavetaCard({
             </div>
             {editando?.id === l.id ? (
               <div className="flex items-center gap-1">
-                <input
-                  className="input-dominium w-24 py-1"
-                  value={editando.valor}
-                  onChange={(e) => setEditando({ id: l.id, valor: e.target.value })}
+                <CampoMoeda
+                  compacto
+                  valorCentavos={editando.valorCentavos}
+                  onChange={(valorCentavos) => setEditando({ id: l.id, valorCentavos })}
                   autoFocus
                 />
                 <button onClick={onSalvarEdicao} className="text-xs text-gold-300">
@@ -516,7 +513,7 @@ function GavetaCard({
               </div>
             ) : (
               <button
-                onClick={() => setEditando({ id: l.id, valor: String(l.valor) })}
+                onClick={() => setEditando({ id: l.id, valorCentavos: numeroParaCentavos(l.valor) })}
                 className="p-2 text-cream-100/40 hover:text-gold-300"
                 aria-label="Editar valor"
               >

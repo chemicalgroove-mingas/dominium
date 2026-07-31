@@ -5,6 +5,8 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { formatarMoeda } from "@/lib/format";
 import { formatarMesLabel, mesAtual, somarMeses } from "@/lib/mes";
+import { centavosParaNumero, numeroParaCentavos } from "@/lib/moeda";
+import { CampoMoeda } from "@/components/dominium/CampoMoeda";
 import type { InstanciaEmAberto, ItemEmAberto } from "@/lib/types";
 
 type RespostaEmAberto = {
@@ -218,14 +220,14 @@ function SubmodalOutroValor({
   onClose: () => void;
   onSalvo: () => void;
 }) {
-  const [valor, setValor] = useState(String(item.valor));
+  const [valorCentavos, setValorCentavos] = useState(numeroParaCentavos(item.valor));
   const [descricao, setDescricao] = useState("Multa/Juros");
   const [erro, setErro] = useState("");
   const [salvando, setSalvando] = useState(false);
 
   async function salvar(confirmarDuplicado = false) {
     setErro("");
-    const valorNumerico = parseFloat(valor.replace(",", "."));
+    const valorNumerico = centavosParaNumero(valorCentavos);
     if (!valorNumerico || valorNumerico <= 0) {
       setErro("Informe um valor maior que zero.");
       return;
@@ -271,16 +273,13 @@ function SubmodalOutroValor({
           {item.descricao} · devido {formatarMoeda(item.valor)}
         </p>
 
-        <div className="mb-4">
-          <label className="mb-1 block text-sm text-cream-100/80">Valor pago</label>
-          <input
-            className="input-dominium tabular"
-            inputMode="decimal"
-            value={valor}
-            onChange={(e) => setValor(e.target.value)}
-            autoFocus
-          />
-        </div>
+        <CampoMoeda
+          label="Valor pago"
+          valorCentavos={valorCentavos}
+          onChange={setValorCentavos}
+          autoFocus
+        />
+        <div className="h-4" />
 
         <div className="mb-5">
           <label className="mb-1 block text-sm text-cream-100/80">Descrição</label>
