@@ -147,7 +147,7 @@ export default function LancamentosPage() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl">
+    <div className="mx-auto max-w-3xl lg:max-w-5xl">
       <div className="mb-4 flex items-center justify-between">
         <h1 className="font-brand text-2xl text-cream-100">Lançamentos</h1>
         <JanelaSelector />
@@ -206,8 +206,8 @@ export default function LancamentosPage() {
       )}
 
       {instanciaSelecionada && (
-        <>
-          <form onSubmit={registrarLancamento} className="card-dominium mb-4 flex flex-col gap-4 p-5">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:items-start">
+          <form onSubmit={registrarLancamento} className="card-dominium flex flex-col gap-4 p-5">
             <div>
               <label className="mb-1 block text-sm text-cream-100/80">Descrição</label>
               <input
@@ -294,7 +294,7 @@ export default function LancamentosPage() {
             </button>
           </form>
 
-          <div className="card-dominium p-4">
+          <div className="card-dominium p-4 lg:sticky lg:top-8">
             <div className="mb-3 flex items-center justify-between">
               <div>
                 <p className="text-sm text-cream-100">{instanciaSelecionada.nome}</p>
@@ -313,7 +313,7 @@ export default function LancamentosPage() {
               <p className="py-4 text-center text-sm text-cream-100/50">Nenhum lançamento nesta instância.</p>
             )}
 
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-2 lg:max-h-[calc(100vh-14rem)] lg:overflow-y-auto lg:pr-1">
               {lancamentos.map((l) => (
                 <div key={l.id} className="flex items-center gap-3 border-t border-navy-700 pt-2 first:border-t-0 first:pt-0">
                   <div className="min-w-0 flex-1">
@@ -359,7 +359,7 @@ export default function LancamentosPage() {
               ))}
             </div>
           </div>
-        </>
+        </div>
       )}
 
       {novaInstancia && (
