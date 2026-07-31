@@ -27,6 +27,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUsuario(data.usuario);
     } catch {
       setUsuario(null);
+      // Sessao invalida (cookie presente mas token expirado/usuario inexistente):
+      // limpa o cookie no servidor para nao entrar em loop com o proxy, que so
+      // checa presenca do cookie, nao validade.
+      try {
+        await api.post("/api/auth/logout");
+      } catch {
+        // ignora — se o backend estiver fora do ar, so seguimos sem sessao
+      }
     } finally {
       setCarregando(false);
     }
