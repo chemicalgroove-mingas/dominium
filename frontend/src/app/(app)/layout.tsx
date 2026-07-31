@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { InstanciasProvider } from "@/contexts/InstanciasContext";
 import { RecorteProvider } from "@/contexts/RecorteContext";
@@ -8,6 +10,13 @@ import { LogOut } from "lucide-react";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { usuario, carregando, logout } = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!carregando && !usuario) {
+      router.replace("/login");
+    }
+  }, [carregando, usuario, router]);
 
   if (carregando) {
     return <div className="flex flex-1 items-center justify-center text-cream-100/60">Carregando...</div>;
