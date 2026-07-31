@@ -8,8 +8,9 @@ import { useRecorte } from "@/contexts/RecorteContext";
 import { JanelaSelector } from "@/components/dominium/JanelaSelector";
 import { ResumoDashboard } from "@/components/dominium/ResumoDashboard";
 import { CampoMoeda } from "@/components/dominium/CampoMoeda";
+import { SeletorMesReferencia } from "@/components/dominium/SeletorMesReferencia";
 import { formatarMoeda } from "@/lib/format";
-import { mesAtual } from "@/lib/mes";
+import { diferencaEmMeses, formatarMesLabel } from "@/lib/mes";
 import { centavosParaNumero, numeroParaCentavos } from "@/lib/moeda";
 import { PALETA_INSTANCIA, COR_SUGERIDA_POR_GRUPO } from "@/lib/cores";
 import type { DashboardData, Grupo, Instancia, Lancamento, TipoLancamento } from "@/lib/types";
@@ -18,8 +19,8 @@ const FORM_VAZIO = {
   descricao: "",
   valorCentavos: 0,
   tipo: "fixo" as TipoLancamento,
-  parcelas: "",
-  mesInicio: mesAtual(),
+  mesInicio: "",
+  mesFim: "",
   observacoes: "",
 };
 
@@ -33,7 +34,7 @@ const LABEL_LANCAR: Record<Grupo, string> = {
 
 export default function LancamentosPage() {
   const { instancias, recarregar } = useInstancias();
-  const { janela } = useRecorte();
+  const { janela, mesReferencia } = useRecorte();
 
   const [grupo, setGrupo] = useState<Grupo>("gasto");
   const [estado, setEstado] = useState<"geral" | "foco">("geral");
@@ -55,9 +56,9 @@ export default function LancamentosPage() {
   );
 
   const carregarResumo = useCallback(async () => {
-    const data = await api.get<DashboardData>(`/api/dashboard?janela=${janela}`);
+    const data = await api.get<DashboardData>(`/api/dashboard?janela=${janela}&mesReferencia=${mesReferencia}`);
     setResumo(data);
-  }, [janela]);
+  }, [janela, mesReferencia]);
 
   const carregarGavetaDe = useCallback(
     async (instancia: Instancia) => {
@@ -66,14 +67,14 @@ export default function LancamentosPage() {
         [instancia.id]: { ...(prev[instancia.id] || { lancamentos: [], totalJanela: 0 }), carregando: true },
       }));
       const data = await api.get<{ lancamentos: Lancamento[]; totalJanela: number }>(
-        `/api/lancamentos?instanciaId=${instancia.id}&mesReferencia=${mesAtual()}&janela=${janela}`
+        `/api/lancamentos?instanciaId=${instancia.id}&mesReferencia=${mesReferencia}&janela=${janela}`
       );
       setGavetas((prev) => ({
         ...prev,
         [instancia.id]: { lancamentos: data.lancamentos, totalJanela: data.totalJanela, carregando: false },
       }));
     },
-    [janela]
+    [janela, mesReferencia]
   );
 
   const carregarTodasGavetas = useCallback(async () => {
@@ -90,10 +91,15 @@ export default function LancamentosPage() {
 
   function abrirFoco(instancia: Instancia) {
     setInstanciaFoco(instancia);
-    setForm(FORM_VAZIO);
+    setForm({ ...FORM_VAZIO, mesInicio: mesReferencia, mesFim: mesReferencia });
     setErroForm("");
     setEstado("foco");
   }
+
+  const parcelasCalculadas =
+    form.tipo === "temporario" && form.mesInicio && form.mesFim
+      ? diferencaEmMeses(form.mesInicio, form.mesFim) + 1
+      : null;
 
   function voltarParaGeral() {
     setEstado("geral");
@@ -123,8 +129,8 @@ export default function LancamentosPage() {
       setErroForm("Informe um valor maior que zero.");
       return;
     }
-    if (form.tipo === "temporario" && (!form.parcelas || parseInt(form.parcelas, 10) < 1)) {
-      setErroForm("Informe o numero de parcelas (minimo 1).");
+    if (form.tipo === "temporario" && (!parcelasCalculadas || parcelasCalculadas < 1)) {
+      setErroForm("Mês fim precisa ser igual ou posterior ao mês início.");
       return;
     }
 
@@ -135,7 +141,7 @@ export default function LancamentosPage() {
         descricao: form.descricao,
         valor: valorNumerico,
         tipo: form.tipo,
-        parcelas: form.tipo === "temporario" ? parseInt(form.parcelas, 10) : null,
+        parcelas: form.tipo === "temporario" ? parcelasCalculadas : null,
         mesInicio: form.mesInicio,
         observacoes: form.observacoes || null,
       });
@@ -176,7 +182,10 @@ export default function LancamentosPage() {
   return (
     <div className="mx-auto max-w-3xl lg:max-w-5xl">
       <div className="mb-4 flex items-center justify-between">
-        <h1 className="font-brand text-2xl text-cream-100">Lançamentos</h1>
+        <div>
+          <h1 className="font-brand text-2xl text-cream-100">Lançamentos</h1>
+          <p className="text-xs text-cream-100/50">Referência: {formatarMesLabel(mesReferencia)}</p>
+        </div>
         <JanelaSelector />
       </div>
 
@@ -185,6 +194,10 @@ export default function LancamentosPage() {
           <ResumoDashboard dados={resumo} compacto />
         </div>
       )}
+
+      <div className="mb-4">
+        <SeletorMesReferencia />
+      </div>
 
       <div className="mb-6 flex gap-2">
         {(["gasto", "receita"] as Grupo[]).map((g) => (
@@ -212,6 +225,8 @@ export default function LancamentosPage() {
                 instancia={i}
                 grupo={grupo}
                 dados={gavetas[i.id]}
+                mesReferencia={mesReferencia}
+                janela={janela}
                 labelLancar={LABEL_LANCAR[grupo]}
                 onLancar={() => abrirFoco(i)}
                 onExcluirInstancia={() => setInstanciaParaExcluir(i)}
@@ -270,7 +285,7 @@ export default function LancamentosPage() {
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
-                  onClick={() => setForm({ ...form, tipo: "fixo", parcelas: "" })}
+                  onClick={() => setForm({ ...form, tipo: "fixo" })}
                   className={`min-h-[44px] rounded-xl border text-sm ${
                     form.tipo === "fixo" ? "border-gold-500 text-gold-300" : "border-navy-700 text-cream-100/60"
                   }`}
@@ -279,7 +294,9 @@ export default function LancamentosPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setForm({ ...form, tipo: "temporario" })}
+                  onClick={() =>
+                    setForm({ ...form, tipo: "temporario", mesFim: form.mesFim || form.mesInicio })
+                  }
                   className={`min-h-[44px] rounded-xl border text-sm ${
                     form.tipo === "temporario"
                       ? "border-gold-500 text-gold-300"
@@ -303,17 +320,28 @@ export default function LancamentosPage() {
                 </div>
                 {form.tipo === "temporario" && (
                   <div>
-                    <label className="mb-1 block text-sm text-cream-100/80">Nº parcelas</label>
+                    <label className="mb-1 block text-sm text-cream-100/80">Mês fim</label>
                     <input
                       className="input-dominium"
-                      inputMode="numeric"
-                      value={form.parcelas}
-                      onChange={(e) => setForm({ ...form, parcelas: e.target.value })}
+                      type="month"
+                      value={form.mesFim}
+                      min={form.mesInicio}
+                      onChange={(e) => setForm({ ...form, mesFim: e.target.value })}
                       required
                     />
                   </div>
                 )}
               </div>
+
+              {form.tipo === "temporario" && (
+                <p className="-mt-2 text-xs text-cream-100/50">
+                  {parcelasCalculadas && parcelasCalculadas >= 1
+                    ? `${parcelasCalculadas} parcela${parcelasCalculadas === 1 ? "" : "s"} calculada${
+                        parcelasCalculadas === 1 ? "" : "s"
+                      } automaticamente.`
+                    : "Mês fim precisa ser igual ou posterior ao mês início."}
+                </p>
+              )}
 
               <div>
                 <label className="mb-1 block text-sm text-cream-100/80">Observações (opcional)</label>
@@ -335,6 +363,8 @@ export default function LancamentosPage() {
               instancia={instanciaFoco}
               grupo={grupo}
               dados={gavetas[instanciaFoco.id]}
+              mesReferencia={mesReferencia}
+              janela={janela}
               onExcluirInstancia={() => setInstanciaParaExcluir(instanciaFoco)}
               editando={editando}
               setEditando={setEditando}
@@ -415,10 +445,14 @@ export default function LancamentosPage() {
   );
 }
 
+const LABEL_JANELA: Record<string, string> = { mes: "no mês", "3m": "em 3 meses", "6m": "em 6 meses", "12m": "em 12 meses" };
+
 function GavetaCard({
   instancia,
   grupo,
   dados,
+  mesReferencia,
+  janela,
   labelLancar,
   onLancar,
   onExcluirInstancia,
@@ -431,6 +465,8 @@ function GavetaCard({
   instancia: Instancia;
   grupo: Grupo;
   dados?: DadosGaveta;
+  mesReferencia?: string;
+  janela?: string;
   labelLancar?: string;
   onLancar?: () => void;
   onExcluirInstancia: () => void;
@@ -460,6 +496,11 @@ function GavetaCard({
               · {lancamentos.length} lançamento{lancamentos.length === 1 ? "" : "s"}
             </span>
           </p>
+          {mesReferencia && (
+            <p className="text-[11px] text-cream-100/40">
+              {LABEL_JANELA[janela || "mes"]} a partir de {formatarMesLabel(mesReferencia)}
+            </p>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-1">
           {onLancar && labelLancar && (

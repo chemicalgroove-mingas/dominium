@@ -4,20 +4,20 @@ import { useCallback, useEffect, useState } from "react";
 import { Area, AreaChart, Bar, BarChart, ResponsiveContainer, Tooltip, XAxis } from "recharts";
 import { api } from "@/lib/api";
 import { formatarMoeda } from "@/lib/format";
-import { formatarMesCurto } from "@/lib/mes";
+import { formatarMesCurto, formatarMesLabel } from "@/lib/mes";
 import { useRecorte } from "@/contexts/RecorteContext";
 import { JanelaSelector } from "@/components/dominium/JanelaSelector";
-import { ResumoDashboard } from "@/components/dominium/ResumoDashboard";
+import { SeletorMesReferencia } from "@/components/dominium/SeletorMesReferencia";
 import type { DashboardData } from "@/lib/types";
 
 export default function DashboardPage() {
-  const { janela } = useRecorte();
+  const { janela, mesReferencia } = useRecorte();
   const [dados, setDados] = useState<DashboardData | null>(null);
 
   const carregar = useCallback(async () => {
-    const data = await api.get<DashboardData>(`/api/dashboard?janela=${janela}`);
+    const data = await api.get<DashboardData>(`/api/dashboard?janela=${janela}&mesReferencia=${mesReferencia}`);
     setDados(data);
-  }, [janela]);
+  }, [janela, mesReferencia]);
 
   useEffect(() => {
     carregar();
@@ -44,7 +44,10 @@ export default function DashboardPage() {
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6">
       <div className="flex items-center justify-between">
-        <h1 className="font-brand text-2xl text-cream-100">Dashboard</h1>
+        <div>
+          <h1 className="font-brand text-2xl text-cream-100">Dashboard</h1>
+          <p className="text-xs text-cream-100/50">Referência: {formatarMesLabel(mesReferencia)}</p>
+        </div>
         <JanelaSelector />
       </div>
 
@@ -58,12 +61,29 @@ export default function DashboardPage() {
           <p className="tabular text-2xl font-semibold text-danger">{formatarMoeda(dados.despesaPeriodo)}</p>
         </div>
         <div className="card-dominium p-4">
-          <p className="text-xs text-cream-100/60">Saldo</p>
+          <p className="text-xs text-cream-100/60">Saldo no período</p>
           <p className="tabular text-gold-gradient text-2xl font-semibold">{formatarMoeda(dados.saldoPeriodo)}</p>
         </div>
       </div>
 
-      <ResumoDashboard dados={dados} />
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="card-dominium p-4">
+          <p className="text-xs text-cream-100/60">Sobra do mês</p>
+          <p className="tabular text-2xl font-semibold text-success">{formatarMoeda(dados.sobraLivreMes)}</p>
+        </div>
+        <div className="card-dominium p-4">
+          <p className="text-xs text-cream-100/60">Comprometimento</p>
+          <p className="tabular text-2xl font-semibold text-cream-100">{dados.comprometimento.toFixed(0)}%</p>
+        </div>
+        <div className="card-dominium p-4">
+          <p className="text-xs text-cream-100/60">Reserva</p>
+          <p className="tabular text-gold-gradient text-2xl font-semibold">
+            {formatarMoeda(dados.patrimonioInvestido)}
+          </p>
+        </div>
+      </div>
+
+      <SeletorMesReferencia />
 
       {consolidadoCompleto.length > 1 && (
         <div className="card-dominium p-4">
@@ -95,7 +115,9 @@ export default function DashboardPage() {
       )}
 
       <div className="card-dominium p-4">
-        <p className="mb-3 text-sm text-cream-100/70">Evolução mensal (receita × gasto × folga)</p>
+        <p className="mb-3 text-sm text-cream-100/70">
+          Evolução mensal (receita × gasto × folga) <span className="text-cream-100/40">a partir de {formatarMesLabel(mesReferencia)}</span>
+        </p>
         <ResponsiveContainer width="100%" height={200}>
           <BarChart data={dados.evolucaoMensal}>
             <XAxis dataKey="mes" tickFormatter={formatarMesCurto} stroke="#8496AC" fontSize={12} />

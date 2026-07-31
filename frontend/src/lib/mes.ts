@@ -25,3 +25,23 @@ export function formatarMesCurto(chave: string) {
   const nomes = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
   return `${nomes[parseInt(mes, 10) - 1]}/${ano.slice(2)}`;
 }
+
+export const MESES_ABREV = ["JAN", "FEV", "MAR", "ABR", "MAI", "JUN", "JUL", "AGO", "SET", "OUT", "NOV", "DEZ"];
+
+export function anoDoMes(chave: string) {
+  return parseInt(chave.split("-")[0], 10);
+}
+
+export function numeroDoMes(chave: string) {
+  return parseInt(chave.split("-")[1], 10);
+}
+
+export function montarMes(ano: number, mesNumero: number) {
+  return `${ano}-${String(mesNumero).padStart(2, "0")}`;
+}
+
+export function diferencaEmMeses(chaveA: string, chaveB: string) {
+  const [anoA, mesA] = chaveA.split("-").map(Number);
+  const [anoB, mesB] = chaveB.split("-").map(Number);
+  return (anoB * 12 + (mesB - 1)) - (anoA * 12 + (mesA - 1));
+}
