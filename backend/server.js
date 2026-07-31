@@ -7,7 +7,8 @@ const cookieParser = require('cookie-parser');
 const authRouter = require('./src/routes/auth');
 const instanciasRouter = require('./src/routes/instancias');
 const lancamentosRouter = require('./src/routes/lancamentos');
-const recortesRouter = require('./src/routes/recortes');
+const pagamentosRouter = require('./src/routes/pagamentos');
+const investimentosRouter = require('./src/routes/investimentos');
 const dashboardRouter = require('./src/routes/dashboard');
 
 const app = express();
@@ -27,7 +28,8 @@ app.get('/api/health', (req, res) => res.json({ ok: true, servico: 'dominium-bac
 app.use('/api/auth', authRouter);
 app.use('/api/instancias', instanciasRouter);
 app.use('/api/lancamentos', lancamentosRouter);
-app.use('/api/recortes', recortesRouter);
+app.use('/api/pagamentos', pagamentosRouter);
+app.use('/api/investimentos', investimentosRouter);
 app.use('/api/dashboard', dashboardRouter);
 
 app.use((req, res) => {

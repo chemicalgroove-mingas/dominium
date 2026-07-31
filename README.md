@@ -3,11 +3,17 @@
 Sistema pessoal de controle financeiro e patrimonial. **Controle • Planeje • Conquiste**
 
 Cada usuário monta o sistema do seu jeito: cria, edita e exclui suas próprias **instâncias**
-(contas, cartões, categorias, objetivos), registra **lançamentos** nelas e acompanha tudo por um
-**dashboard** e por **recortes** (filtros salvos e reutilizáveis). Não há entregáveis — é uma
-ferramenta de controle pessoal, com conta 100% isolada por usuário.
+(agrupadores de gasto, receita ou investimento, com nome e cor livres). Dentro delas registra
+**lançamentos** — fixos (recorrentes indefinidamente) ou temporários (parcelados, com nº de
+parcelas e mês de início/fim calculado automaticamente) — e quita débitos na aba **Pagamentos**
+(total, seleção de itens, ou valor customizado com geração automática de pendência/excedente).
+A aba **Reserva e Investimentos** trata contas de investimento como fluxos de aporte/resgate.
+O **Dashboard** projeta tudo isso numa janela temporal (mês/3/6/12 meses) escolhida pelo usuário.
+Não há entregáveis — é uma ferramenta de controle pessoal, com conta 100% isolada por usuário.
 
-Ver [PROMPT_DOMINIUM.md](./PROMPT_DOMINIUM.md) para a especificação completa do produto.
+Ver [PROMPT_DOMINIUM.md](./PROMPT_DOMINIUM.md) para a especificação original do produto e
+[ADEQUACOES_MODELO_V2.md](./ADEQUACOES_MODELO_V2.md) para o modelo de dados e regras de negócio
+efetivamente implementados (fixo/temporário, pagamentos, projeção por janela temporal).
 
 ## Stack
 

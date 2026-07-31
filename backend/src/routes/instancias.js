@@ -6,54 +6,33 @@ const { autenticar } = require('../middleware/auth');
 const router = express.Router();
 router.use(autenticar);
 
-const TIPOS = ['conta', 'cartao', 'categoria_gasto', 'categoria_receita', 'objetivo'];
+const GRUPOS = ['gasto', 'receita', 'investimento'];
 
 const instanciaSchema = z.object({
   nome: z.string().trim().min(1, 'Informe um nome.'),
-  tipo: z.enum(TIPOS),
+  grupo: z.enum(GRUPOS),
   cor: z.string().trim().min(1),
-  icone: z.string().trim().min(1),
-  metaValor: z.number().nullable().optional(),
-  metaPrazo: z.string().nullable().optional(),
 });
 
 router.get('/', async (req, res) => {
-  const { arquivadas } = req.query;
+  const { grupo, ativas } = req.query;
   const instancias = await prisma.instancia.findMany({
-    where: { usuarioId: req.usuario.id, ...(arquivadas === 'true' ? {} : { arquivada: false }) },
-    orderBy: [{ ordem: 'asc' }, { criadoEm: 'asc' }],
-    include: { _count: { select: { lancamentos: true } } },
+    where: {
+      usuarioId: req.usuario.id,
+      ...(grupo ? { grupo: String(grupo) } : {}),
+      ...(ativas === 'true' ? { ativa: true } : {}),
+    },
+    orderBy: { criadoEm: 'asc' },
   });
-
-  const comSaldo = await Promise.all(
-    instancias.map(async (i) => {
-      const agregado = await prisma.lancamento.aggregate({
-        where: { instanciaId: i.id },
-        _sum: { valor: true },
-      });
-      return { ...i, saldoLancado: agregado._sum.valor || 0 };
-    })
-  );
-
-  return res.json({ instancias: comSaldo });
+  return res.json({ instancias });
 });
 
 router.post('/', async (req, res) => {
   const parsed = instanciaSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ erro: parsed.error.issues[0].message });
 
-  const ultima = await prisma.instancia.findFirst({
-    where: { usuarioId: req.usuario.id },
-    orderBy: { ordem: 'desc' },
-  });
-
   const instancia = await prisma.instancia.create({
-    data: {
-      ...parsed.data,
-      metaPrazo: parsed.data.metaPrazo ? new Date(parsed.data.metaPrazo) : null,
-      usuarioId: req.usuario.id,
-      ordem: (ultima?.ordem ?? -1) + 1,
-    },
+    data: { ...parsed.data, usuarioId: req.usuario.id },
   });
   return res.status(201).json({ instancia });
 });
@@ -67,19 +46,11 @@ router.put('/:id', async (req, res) => {
   });
   if (!instancia) return res.status(404).json({ erro: 'Instancia nao encontrada.' });
 
-  const atualizada = await prisma.instancia.update({
-    where: { id: instancia.id },
-    data: {
-      ...parsed.data,
-      ...(parsed.data.metaPrazo !== undefined
-        ? { metaPrazo: parsed.data.metaPrazo ? new Date(parsed.data.metaPrazo) : null }
-        : {}),
-    },
-  });
+  const atualizada = await prisma.instancia.update({ where: { id: instancia.id }, data: parsed.data });
   return res.json({ instancia: atualizada });
 });
 
-router.patch('/:id/arquivar', async (req, res) => {
+router.patch('/:id/ativa', async (req, res) => {
   const instancia = await prisma.instancia.findFirst({
     where: { id: req.params.id, usuarioId: req.usuario.id },
   });
@@ -87,7 +58,7 @@ router.patch('/:id/arquivar', async (req, res) => {
 
   const atualizada = await prisma.instancia.update({
     where: { id: instancia.id },
-    data: { arquivada: !instancia.arquivada },
+    data: { ativa: !instancia.ativa },
   });
   return res.json({ instancia: atualizada });
 });
@@ -98,15 +69,7 @@ router.delete('/:id', async (req, res) => {
   });
   if (!instancia) return res.status(404).json({ erro: 'Instancia nao encontrada.' });
 
-  const totalLancamentos = await prisma.lancamento.count({ where: { instanciaId: instancia.id } });
-  if (totalLancamentos > 0 && req.query.confirmar !== 'true') {
-    return res.status(409).json({
-      erro: 'Esta instancia possui lancamentos vinculados.',
-      totalLancamentos,
-      precisaConfirmar: true,
-    });
-  }
-
+  // Cascade (lancamentos, pagamentos, investimentos) garantido pelo schema (onDelete: Cascade).
   await prisma.instancia.delete({ where: { id: instancia.id } });
   return res.json({ ok: true });
 });

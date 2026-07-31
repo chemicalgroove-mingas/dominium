@@ -2,14 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Layers, ListChecks, Scissors, LogOut } from "lucide-react";
+import { LayoutDashboard, ListChecks, Receipt, PiggyBank, LogOut } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 
 const ITENS = [
   { href: "/dashboard", label: "Dashboard", Icon: LayoutDashboard },
   { href: "/lancamentos", label: "Lançamentos", Icon: ListChecks },
-  { href: "/instancias", label: "Instâncias", Icon: Layers },
-  { href: "/recortes", label: "Recortes", Icon: Scissors },
+  { href: "/pagamentos", label: "Pagamentos", Icon: Receipt },
+  { href: "/investimentos", label: "Reserva", Icon: PiggyBank },
 ];
 
 export function BottomNav() {

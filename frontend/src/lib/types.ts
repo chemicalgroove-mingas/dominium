@@ -6,62 +6,107 @@ export type Usuario = {
   emailVerificado?: boolean;
 };
 
-export type TipoInstancia = "conta" | "cartao" | "categoria_gasto" | "categoria_receita" | "objetivo";
+export type Grupo = "gasto" | "receita" | "investimento";
 
 export type Instancia = {
   id: string;
   usuarioId: string;
   nome: string;
-  tipo: TipoInstancia;
+  grupo: Grupo;
   cor: string;
-  icone: string;
-  metaValor: number | null;
-  metaPrazo: string | null;
-  arquivada: boolean;
-  ordem: number;
+  ativa: boolean;
   criadoEm: string;
-  saldoLancado: number;
-  _count?: { lancamentos: number };
 };
 
-export type TipoLancamento = "entrada" | "saida" | "transferencia";
+export type TipoLancamento = "fixo" | "temporario";
 
 export type Lancamento = {
   id: string;
   usuarioId: string;
   instanciaId: string;
-  instancia: Instancia;
-  tipo: TipoLancamento;
+  descricao: string;
   valor: number;
-  descricao: string | null;
-  data: string;
-  tags: string[];
-  recorrente: boolean;
+  tipo: TipoLancamento;
+  parcelas: number | null;
+  mesInicio: string;
+  mesFim: string | null;
+  ativo: boolean;
+  observacoes: string | null;
   criadoEm: string;
+  pagas: number | null;
+  restantes: number | null;
+  totalRestante: number | null;
 };
 
-export type FiltrosRecorte = {
-  de?: string | null;
-  ate?: string | null;
-  instanciaIds: string[];
-  tipos: string[];
-  tags: string[];
+export type Janela = "mes" | "3m" | "6m" | "12m";
+
+export type ItemEmAberto = {
+  lancamentoId: string;
+  descricao: string;
+  valor: number;
+  tipo: TipoLancamento;
 };
 
-export type Recorte = {
+export type InstanciaEmAberto = {
+  id: string;
+  nome: string;
+  cor: string;
+  totalAberto: number;
+  itens: ItemEmAberto[];
+};
+
+export type Pagamento = {
   id: string;
   usuarioId: string;
-  nome: string;
-  filtros: FiltrosRecorte;
+  instanciaId: string;
+  lancamentoId: string | null;
+  mesReferencia: string;
+  valorPago: number;
+  tipo: "total" | "selecionado" | "parcial" | "avulso";
+  observacoes: string | null;
   criadoEm: string;
 };
 
+export type Investimento = {
+  id: string;
+  usuarioId: string;
+  instanciaId: string;
+  descricao: string;
+  valor: number;
+  observacoes: string | null;
+  criadoEm: string;
+};
+
+export type ContaInvestimento = Instancia & {
+  fluxos: Investimento[];
+  patrimonio: number;
+};
+
+export type PontoEvolucaoMensal = {
+  mes: string;
+  receita: number;
+  gasto: number;
+  folga: number;
+  proximidade: number;
+};
+
+export type PontoSaldo = { mes: string; saldoAcumulado: number };
+
 export type DashboardData = {
-  saldoTotal: number;
-  entradasMes: number;
-  saidasMes: number;
-  porInstancia: { id: string; nome: string; cor: string; icone: string; tipo: string; saldo: number }[];
-  evolucao: { mes: string; saldoAcumulado: number }[];
+  janela: Janela;
+  mesReferencia: string;
+  receitaPeriodo: number;
+  despesaPeriodo: number;
+  saldoPeriodo: number;
+  comprometimento: number;
+  sobraLivreMes: number;
+  evolucaoMensal: PontoEvolucaoMensal[];
+  saldoAcumuladoHistorico: PontoSaldo[];
+  saldoConsolidado: PontoSaldo[];
+  totalHistorico: number;
+  impactoPorInstancia: { id: string; nome: string; cor: string; total: number }[];
+  patrimonioInvestido: number;
+  contasInvestimento: { id: string; nome: string; cor: string; patrimonio: number }[];
   totalInstancias: number;
   totalLancamentos: number;
 };

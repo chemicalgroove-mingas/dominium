@@ -1,9 +1,12 @@
-export const CORES_INSTANCIA = [
+import type { Grupo, Janela } from "./types";
+
+// Cores sugeridas por grupo (o usuario pode escolher qualquer uma livremente).
+export const PALETA_INSTANCIA = [
+  "#5B8DEF", // azul — sugestao para gasto
+  "#4CAF7D", // verde — sugestao para receita
+  "#B368E0", // roxo — sugestao para investimento
   "#C9A24B",
-  "#4CAF7D",
   "#D9614F",
-  "#5B8DEF",
-  "#B368E0",
   "#E0A039",
   "#3FB6C6",
   "#E0698A",
@@ -11,10 +14,21 @@ export const CORES_INSTANCIA = [
   "#7CB342",
 ];
 
-export const TIPOS_INSTANCIA: { value: string; label: string }[] = [
-  { value: "conta", label: "Conta" },
-  { value: "cartao", label: "Cartão" },
-  { value: "categoria_gasto", label: "Categoria de gasto" },
-  { value: "categoria_receita", label: "Categoria de receita" },
-  { value: "objetivo", label: "Objetivo" },
+export const COR_SUGERIDA_POR_GRUPO: Record<Grupo, string> = {
+  gasto: "#5B8DEF",
+  receita: "#4CAF7D",
+  investimento: "#B368E0",
+};
+
+export const LABEL_GRUPO: Record<Grupo, string> = {
+  gasto: "Gasto",
+  receita: "Receita",
+  investimento: "Investimento",
+};
+
+export const JANELAS: { value: Janela; label: string }[] = [
+  { value: "mes", label: "Mês" },
+  { value: "3m", label: "3 meses" },
+  { value: "6m", label: "6 meses" },
+  { value: "12m", label: "12 meses" },
 ];

@@ -2,86 +2,120 @@ const express = require('express');
 const { z } = require('zod');
 const prisma = require('../lib/prisma');
 const { autenticar } = require('../middleware/auth');
+const { somarMeses, mesAtual, parseMes } = require('../utils/mes');
+const { janelaValida, limitesJanela, projetarLancamentoNaJanela } = require('../utils/projecao');
 
 const router = express.Router();
 router.use(autenticar);
 
-const lancamentoSchema = z.object({
+const mesSchema = z.string().regex(/^\d{4}-\d{2}$/, 'Use o formato AAAA-MM.');
+
+const baseSchema = z.object({
   instanciaId: z.string().min(1),
-  tipo: z.enum(['entrada', 'saida', 'transferencia']),
-  valor: z.number().positive('Informe um valor maior que zero.'),
-  descricao: z.string().trim().optional().nullable(),
-  data: z.string().min(1),
-  tags: z.array(z.string()).optional().default([]),
-  recorrente: z.boolean().optional().default(false),
+  descricao: z.string().trim().min(1, 'Informe uma descricao.'),
+  valor: z.number().positive('O valor precisa ser maior que zero.'),
+  tipo: z.enum(['fixo', 'temporario']),
+  parcelas: z.number().int().min(1).nullable().optional(),
+  mesInicio: mesSchema,
+  observacoes: z.string().trim().optional().nullable(),
 });
 
-function serializar(lancamento) {
-  return { ...lancamento, tags: lancamento.tags ? lancamento.tags.split(',').filter(Boolean) : [] };
+function validarParcelasPorTipo(dados) {
+  if (dados.tipo === 'temporario') {
+    if (!dados.parcelas || dados.parcelas < 1) {
+      return 'Lancamentos temporarios exigem numero de parcelas (>= 1).';
+    }
+  } else if (dados.parcelas !== undefined && dados.parcelas !== null) {
+    return 'Lancamentos fixos nao tem numero de parcelas.';
+  }
+  return null;
+}
+
+async function contarPagamentos(lancamentoId) {
+  return prisma.pagamento.count({ where: { lancamentoId } });
+}
+
+async function serializarComRestantes(lancamento) {
+  if (lancamento.tipo !== 'temporario') {
+    return { ...lancamento, pagas: null, restantes: null, totalRestante: null };
+  }
+  const pagas = await contarPagamentos(lancamento.id);
+  const restantes = Math.max(lancamento.parcelas - pagas, 0);
+  return { ...lancamento, pagas, restantes, totalRestante: restantes * lancamento.valor };
 }
 
 router.get('/', async (req, res) => {
-  const { instanciaId, tipo, de, ate, tags } = req.query;
+  const { instanciaId, mesReferencia, janela } = req.query;
+  if (!instanciaId) return res.status(400).json({ erro: 'Informe instanciaId.' });
 
-  const where = {
-    usuarioId: req.usuario.id,
-    ...(instanciaId ? { instanciaId: String(instanciaId) } : {}),
-    ...(tipo ? { tipo: String(tipo) } : {}),
-    ...(de || ate
-      ? {
-          data: {
-            ...(de ? { gte: new Date(String(de)) } : {}),
-            ...(ate ? { lte: new Date(String(ate)) } : {}),
-          },
-        }
-      : {}),
-  };
+  const instancia = await prisma.instancia.findFirst({
+    where: { id: String(instanciaId), usuarioId: req.usuario.id },
+  });
+  if (!instancia) return res.status(404).json({ erro: 'Instancia nao encontrada.' });
 
-  let lancamentos = await prisma.lancamento.findMany({
-    where,
-    include: { instancia: true },
-    orderBy: { data: 'desc' },
-    take: 200,
+  const lancamentos = await prisma.lancamento.findMany({
+    where: { instanciaId: instancia.id, usuarioId: req.usuario.id },
+    orderBy: { criadoEm: 'desc' },
   });
 
-  if (tags) {
-    const tagsFiltro = String(tags).split(',').filter(Boolean);
-    lancamentos = lancamentos.filter((l) => {
-      const tagsLancamento = l.tags ? l.tags.split(',') : [];
-      return tagsFiltro.some((t) => tagsLancamento.includes(t));
-    });
-  }
+  const comRestantes = await Promise.all(lancamentos.map(serializarComRestantes));
 
-  return res.json({ lancamentos: lancamentos.map(serializar) });
+  const ref = mesReferencia && mesSchema.safeParse(mesReferencia).success ? String(mesReferencia) : mesAtual();
+  const jan = janela && janelaValida(String(janela)) ? String(janela) : 'mes';
+  const [inicio, fim] = limitesJanela(ref, jan);
+  const totalJanela = lancamentos.reduce(
+    (acc, l) => acc + projetarLancamentoNaJanela(l, inicio, fim).total,
+    0
+  );
+
+  return res.json({ lancamentos: comRestantes, totalJanela, janela: jan, mesReferencia: ref });
 });
 
 router.post('/', async (req, res) => {
-  const parsed = lancamentoSchema.safeParse(req.body);
+  const parsed = baseSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ erro: parsed.error.issues[0].message });
+
+  const erroParcelas = validarParcelasPorTipo(parsed.data);
+  if (erroParcelas) return res.status(400).json({ erro: erroParcelas });
 
   const instancia = await prisma.instancia.findFirst({
     where: { id: parsed.data.instanciaId, usuarioId: req.usuario.id },
   });
   if (!instancia) return res.status(404).json({ erro: 'Instancia nao encontrada.' });
 
+  try {
+    parseMes(parsed.data.mesInicio);
+  } catch {
+    return res.status(400).json({ erro: 'mesInicio invalido.' });
+  }
+
+  const mesFim =
+    parsed.data.tipo === 'temporario' ? somarMeses(parsed.data.mesInicio, parsed.data.parcelas - 1) : null;
+
   const lancamento = await prisma.lancamento.create({
     data: {
       usuarioId: req.usuario.id,
       instanciaId: parsed.data.instanciaId,
+      descricao: parsed.data.descricao,
+      valor: parsed.data.valor,
       tipo: parsed.data.tipo,
-      valor: parsed.data.tipo === 'saida' ? -Math.abs(parsed.data.valor) : Math.abs(parsed.data.valor),
-      descricao: parsed.data.descricao || null,
-      data: new Date(parsed.data.data),
-      tags: parsed.data.tags.join(','),
-      recorrente: parsed.data.recorrente,
+      parcelas: parsed.data.tipo === 'temporario' ? parsed.data.parcelas : null,
+      mesInicio: parsed.data.mesInicio,
+      mesFim,
+      observacoes: parsed.data.observacoes || null,
     },
-    include: { instancia: true },
   });
-  return res.status(201).json({ lancamento: serializar(lancamento) });
+  return res.status(201).json({ lancamento: await serializarComRestantes(lancamento) });
+});
+
+const edicaoSchema = z.object({
+  descricao: z.string().trim().min(1).optional(),
+  valor: z.number().positive('O valor precisa ser maior que zero.').optional(),
+  observacoes: z.string().trim().optional().nullable(),
 });
 
 router.put('/:id', async (req, res) => {
-  const parsed = lancamentoSchema.partial().safeParse(req.body);
+  const parsed = edicaoSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ erro: parsed.error.issues[0].message });
 
   const lancamento = await prisma.lancamento.findFirst({
@@ -89,20 +123,8 @@ router.put('/:id', async (req, res) => {
   });
   if (!lancamento) return res.status(404).json({ erro: 'Lancamento nao encontrado.' });
 
-  const data = { ...parsed.data };
-  if (data.valor !== undefined) {
-    const tipo = data.tipo || lancamento.tipo;
-    data.valor = tipo === 'saida' ? -Math.abs(data.valor) : Math.abs(data.valor);
-  }
-  if (data.data !== undefined) data.data = new Date(data.data);
-  if (data.tags !== undefined) data.tags = data.tags.join(',');
-
-  const atualizado = await prisma.lancamento.update({
-    where: { id: lancamento.id },
-    data,
-    include: { instancia: true },
-  });
-  return res.json({ lancamento: serializar(atualizado) });
+  const atualizado = await prisma.lancamento.update({ where: { id: lancamento.id }, data: parsed.data });
+  return res.json({ lancamento: await serializarComRestantes(atualizado) });
 });
 
 router.delete('/:id', async (req, res) => {

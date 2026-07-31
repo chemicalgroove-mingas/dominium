@@ -1,5 +1,5 @@
 // Prototipo local: SQLite. Ao migrar para Supabase, trocar provider para "postgresql"
-// e DATABASE_URL para a connection string do pooler (ver PROMPT_DOMINIUM.md secao 9).
+// e DATABASE_URL para a connection string do pooler (ver README.md).
 generator client {
   provider = "prisma-client-js"
 }
@@ -21,48 +21,72 @@ model Usuario {
   criadoEm            DateTime  @default(now())
   atualizadoEm        DateTime  @updatedAt
 
-  instancias  Instancia[]
-  lancamentos Lancamento[]
-  recortes    Recorte[]
+  instancias    Instancia[]
+  lancamentos   Lancamento[]
+  pagamentos    Pagamento[]
+  investimentos Investimento[]
 }
 
+// grupo: gasto | receita | investimento
 model Instancia {
-  id        String    @id @default(uuid())
+  id        String   @id @default(uuid())
   usuarioId String
-  usuario   Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  usuario   Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
   nome      String
-  tipo      String
+  grupo     String
   cor       String
-  icone     String
-  metaValor Float?
-  metaPrazo DateTime?
-  arquivada Boolean   @default(false)
-  ordem     Int       @default(0)
-  criadoEm  DateTime  @default(now())
+  ativa     Boolean  @default(true)
+  criadoEm  DateTime @default(now())
 
-  lancamentos Lancamento[]
+  lancamentos   Lancamento[]
+  pagamentos    Pagamento[]
+  investimentos Investimento[]
 }
 
+// tipo: fixo | temporario
 model Lancamento {
   id          String    @id @default(uuid())
   usuarioId   String
   usuario     Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
   instanciaId String
   instancia   Instancia @relation(fields: [instanciaId], references: [id], onDelete: Cascade)
-  tipo        String
+  descricao   String
   valor       Float
-  descricao   String?
-  data        DateTime
-  tags        String   @default("")
-  recorrente  Boolean   @default(false)
+  tipo        String
+  parcelas    Int?
+  mesInicio   String
+  mesFim      String?
+  ativo       Boolean   @default(true)
+  observacoes String?
   criadoEm    DateTime  @default(now())
+
+  pagamentos Pagamento[]
 }
 
-model Recorte {
-  id        String   @id @default(uuid())
-  usuarioId String
-  usuario   Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
-  nome      String
-  filtros   String
-  criadoEm  DateTime @default(now())
+// tipo: total | selecionado | parcial | avulso
+model Pagamento {
+  id            String      @id @default(uuid())
+  usuarioId     String
+  usuario       Usuario     @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  instanciaId   String
+  instancia     Instancia   @relation(fields: [instanciaId], references: [id], onDelete: Cascade)
+  lancamentoId  String?
+  lancamento    Lancamento? @relation(fields: [lancamentoId], references: [id], onDelete: SetNull)
+  mesReferencia String
+  valorPago     Float
+  tipo          String
+  observacoes   String?
+  criadoEm      DateTime    @default(now())
+}
+
+model Investimento {
+  id          String    @id @default(uuid())
+  usuarioId   String
+  usuario     Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  instanciaId String
+  instancia   Instancia @relation(fields: [instanciaId], references: [id], onDelete: Cascade)
+  descricao   String
+  valor       Float
+  observacoes String?
+  criadoEm    DateTime  @default(now())
 }

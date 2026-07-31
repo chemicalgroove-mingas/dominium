@@ -2,13 +2,14 @@
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import type { Instancia } from "@/lib/types";
+import type { Grupo, Instancia } from "@/lib/types";
 import { useAuth } from "@/contexts/AuthContext";
 
 type InstanciasContextValue = {
   instancias: Instancia[];
   carregando: boolean;
   recarregar: () => Promise<void>;
+  porGrupo: (grupo: Grupo) => Instancia[];
 };
 
 const InstanciasContext = createContext<InstanciasContextValue | null>(null);
@@ -32,8 +33,13 @@ export function InstanciasProvider({ children }: { children: React.ReactNode }) 
     if (usuario) recarregar();
   }, [usuario, recarregar]);
 
+  const porGrupo = useCallback(
+    (grupo: Grupo) => instancias.filter((i) => i.grupo === grupo && i.ativa),
+    [instancias]
+  );
+
   return (
-    <InstanciasContext.Provider value={{ instancias, carregando, recarregar }}>
+    <InstanciasContext.Provider value={{ instancias, carregando, recarregar, porGrupo }}>
       {children}
     </InstanciasContext.Provider>
   );

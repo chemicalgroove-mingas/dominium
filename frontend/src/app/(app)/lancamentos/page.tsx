@@ -1,108 +1,432 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Trash2 } from "lucide-react";
+import { Pencil, Plus, Trash2 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
-import { IconePorNome } from "@/lib/icons";
-import { formatarData, formatarMoeda } from "@/lib/format";
 import { useInstancias } from "@/contexts/InstanciasContext";
-import type { Lancamento } from "@/lib/types";
+import { useRecorte } from "@/contexts/RecorteContext";
+import { JanelaSelector } from "@/components/dominium/JanelaSelector";
+import { ResumoDashboard } from "@/components/dominium/ResumoDashboard";
+import { formatarMoeda } from "@/lib/format";
+import { mesAtual } from "@/lib/mes";
+import { PALETA_INSTANCIA, COR_SUGERIDA_POR_GRUPO } from "@/lib/cores";
+import type { DashboardData, Grupo, Instancia, Lancamento, TipoLancamento } from "@/lib/types";
+
+const FORM_VAZIO = {
+  descricao: "",
+  valor: "",
+  tipo: "fixo" as TipoLancamento,
+  parcelas: "",
+  mesInicio: mesAtual(),
+  observacoes: "",
+};
 
 export default function LancamentosPage() {
-  const { instancias } = useInstancias();
-  const [lancamentos, setLancamentos] = useState<Lancamento[]>([]);
-  const [filtroInstancia, setFiltroInstancia] = useState("");
-  const [carregando, setCarregando] = useState(true);
-  const [erro, setErro] = useState("");
+  const { instancias, porGrupo, recarregar } = useInstancias();
+  const { janela } = useRecorte();
 
-  const carregar = useCallback(async () => {
-    setCarregando(true);
+  const [grupo, setGrupo] = useState<Grupo>("gasto");
+  const [instanciaSelecionada, setInstanciaSelecionada] = useState<Instancia | null>(null);
+  const [novaInstancia, setNovaInstancia] = useState<{ nome: string; cor: string } | null>(null);
+
+  const [form, setForm] = useState(FORM_VAZIO);
+  const [erroForm, setErroForm] = useState("");
+  const [salvando, setSalvando] = useState(false);
+
+  const [lancamentos, setLancamentos] = useState<Lancamento[]>([]);
+  const [totalJanela, setTotalJanela] = useState(0);
+  const [carregandoGaveta, setCarregandoGaveta] = useState(false);
+  const [confirmarExclusaoInstancia, setConfirmarExclusaoInstancia] = useState(false);
+  const [editando, setEditando] = useState<{ id: string; valor: string } | null>(null);
+
+  const [resumo, setResumo] = useState<DashboardData | null>(null);
+
+  const instanciasDoGrupo = porGrupo(grupo);
+
+  const carregarResumo = useCallback(async () => {
+    const data = await api.get<DashboardData>(`/api/dashboard?janela=${janela}`);
+    setResumo(data);
+  }, [janela]);
+
+  const carregarGaveta = useCallback(async () => {
+    if (!instanciaSelecionada) return;
+    setCarregandoGaveta(true);
     try {
-      const query = filtroInstancia ? `?instanciaId=${filtroInstancia}` : "";
-      const data = await api.get<{ lancamentos: Lancamento[] }>(`/api/lancamentos${query}`);
+      const data = await api.get<{ lancamentos: Lancamento[]; totalJanela: number }>(
+        `/api/lancamentos?instanciaId=${instanciaSelecionada.id}&mesReferencia=${mesAtual()}&janela=${janela}`
+      );
       setLancamentos(data.lancamentos);
-    } catch (err) {
-      setErro(err instanceof ApiError ? err.message : "Nao foi possivel carregar os lançamentos.");
+      setTotalJanela(data.totalJanela);
     } finally {
-      setCarregando(false);
+      setCarregandoGaveta(false);
     }
-  }, [filtroInstancia]);
+  }, [instanciaSelecionada, janela]);
 
   useEffect(() => {
-    carregar();
-    window.addEventListener("dominium:lancamento-criado", carregar);
-    return () => window.removeEventListener("dominium:lancamento-criado", carregar);
-  }, [carregar]);
+    carregarGaveta();
+  }, [carregarGaveta]);
 
-  async function excluir(id: string) {
+  useEffect(() => {
+    carregarResumo();
+  }, [carregarResumo]);
+
+  function selecionarInstancia(instancia: Instancia) {
+    setInstanciaSelecionada(instancia);
+    setForm(FORM_VAZIO);
+    setErroForm("");
+  }
+
+  async function criarInstancia(e: React.FormEvent) {
+    e.preventDefault();
+    if (!novaInstancia) return;
+    const instancia = await api.post<{ instancia: Instancia }>("/api/instancias", {
+      nome: novaInstancia.nome,
+      grupo,
+      cor: novaInstancia.cor,
+    });
+    setNovaInstancia(null);
+    await recarregar();
+    selecionarInstancia(instancia.instancia);
+  }
+
+  async function registrarLancamento(e: React.FormEvent) {
+    e.preventDefault();
+    if (!instanciaSelecionada) return;
+    setErroForm("");
+
+    const valorNumerico = parseFloat(form.valor.replace(",", "."));
+    if (!valorNumerico || valorNumerico <= 0) {
+      setErroForm("Informe um valor maior que zero.");
+      return;
+    }
+    if (form.tipo === "temporario" && (!form.parcelas || parseInt(form.parcelas, 10) < 1)) {
+      setErroForm("Informe o numero de parcelas (minimo 1).");
+      return;
+    }
+
+    setSalvando(true);
+    try {
+      await api.post("/api/lancamentos", {
+        instanciaId: instanciaSelecionada.id,
+        descricao: form.descricao,
+        valor: valorNumerico,
+        tipo: form.tipo,
+        parcelas: form.tipo === "temporario" ? parseInt(form.parcelas, 10) : null,
+        mesInicio: form.mesInicio,
+        observacoes: form.observacoes || null,
+      });
+      setForm(FORM_VAZIO);
+      await Promise.all([carregarGaveta(), carregarResumo()]);
+    } catch (err) {
+      setErroForm(err instanceof ApiError ? err.message : "Nao foi possivel salvar o lancamento.");
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  async function excluirLancamento(id: string) {
     await api.delete(`/api/lancamentos/${id}`);
-    await carregar();
+    await Promise.all([carregarGaveta(), carregarResumo()]);
+  }
+
+  async function salvarEdicao() {
+    if (!editando) return;
+    const valorNumerico = parseFloat(editando.valor.replace(",", "."));
+    if (!valorNumerico || valorNumerico <= 0) return;
+    await api.put(`/api/lancamentos/${editando.id}`, { valor: valorNumerico });
+    setEditando(null);
+    await Promise.all([carregarGaveta(), carregarResumo()]);
+  }
+
+  async function excluirInstancia() {
+    if (!instanciaSelecionada) return;
+    await api.delete(`/api/instancias/${instanciaSelecionada.id}`);
+    setInstanciaSelecionada(null);
+    setConfirmarExclusaoInstancia(false);
+    await Promise.all([recarregar(), carregarResumo()]);
   }
 
   return (
     <div className="mx-auto max-w-3xl">
       <div className="mb-4 flex items-center justify-between">
         <h1 className="font-brand text-2xl text-cream-100">Lançamentos</h1>
+        <JanelaSelector />
       </div>
 
-      <div className="mb-4 flex gap-2 overflow-x-auto pb-1">
-        <button
-          onClick={() => setFiltroInstancia("")}
-          className={`shrink-0 rounded-full border px-3 py-1.5 text-xs ${
-            filtroInstancia === "" ? "border-gold-500 text-gold-300" : "border-navy-700 text-cream-100/60"
-          }`}
-        >
-          Todas
-        </button>
-        {instancias.map((i) => (
+      {resumo && (
+        <div className="mb-4">
+          <ResumoDashboard dados={resumo} compacto />
+        </div>
+      )}
+
+      <div className="mb-4 flex gap-2">
+        {(["gasto", "receita"] as Grupo[]).map((g) => (
           <button
-            key={i.id}
-            onClick={() => setFiltroInstancia(i.id)}
-            className={`shrink-0 rounded-full border px-3 py-1.5 text-xs ${
-              filtroInstancia === i.id ? "" : "border-navy-700 text-cream-100/60"
+            key={g}
+            onClick={() => {
+              setGrupo(g);
+              setInstanciaSelecionada(null);
+            }}
+            className={`min-h-[44px] flex-1 rounded-xl border text-sm font-medium ${
+              grupo === g ? "border-gold-500 bg-gold-500/10 text-gold-300" : "border-navy-700 text-cream-100/70"
             }`}
-            style={filtroInstancia === i.id ? { borderColor: i.cor, color: i.cor } : undefined}
           >
-            {i.nome}
+            {g === "gasto" ? "Gasto" : "Receita"}
           </button>
         ))}
       </div>
 
-      {erro && <p className="mb-3 text-sm text-danger">{erro}</p>}
-      {!carregando && lancamentos.length === 0 && (
+      <div className="mb-6 flex flex-wrap gap-2">
+        {instanciasDoGrupo.map((i) => (
+          <button
+            key={i.id}
+            onClick={() => selecionarInstancia(i)}
+            className="rounded-full border px-4 py-2 text-sm"
+            style={
+              instanciaSelecionada?.id === i.id
+                ? { borderColor: i.cor, color: i.cor, background: `${i.cor}1a` }
+                : { borderColor: "#1F3552", color: "#F7F5F0B3" }
+            }
+          >
+            {i.nome}
+          </button>
+        ))}
+        <button
+          onClick={() => setNovaInstancia({ nome: "", cor: COR_SUGERIDA_POR_GRUPO[grupo] })}
+          className="flex items-center gap-1 rounded-full border border-dashed border-gold-500/50 px-4 py-2 text-sm text-gold-300"
+        >
+          <Plus size={14} /> Nova instância
+        </button>
+      </div>
+
+      {!instanciaSelecionada && (
         <div className="card-dominium p-6 text-center text-sm text-cream-100/70">
-          Nenhum lançamento por aqui ainda. Use o botão + para registrar o primeiro.
+          Selecione uma instância acima para lançar valores ou consultar o histórico.
         </div>
       )}
 
-      <div className="flex flex-col gap-2">
-        {lancamentos.map((l) => (
-          <div key={l.id} className="card-dominium flex items-center gap-3 p-3">
-            <span
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
-              style={{ background: `${l.instancia.cor}22` }}
-            >
-              <IconePorNome nome={l.instancia.icone} className="h-4 w-4" style={{ color: l.instancia.cor }} />
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm text-cream-100">{l.descricao || l.instancia.nome}</p>
-              <p className="text-xs text-cream-100/50">
-                {l.instancia.nome} · {formatarData(l.data)}
-              </p>
+      {instanciaSelecionada && (
+        <>
+          <form onSubmit={registrarLancamento} className="card-dominium mb-4 flex flex-col gap-4 p-5">
+            <div>
+              <label className="mb-1 block text-sm text-cream-100/80">Descrição</label>
+              <input
+                className="input-dominium"
+                value={form.descricao}
+                onChange={(e) => setForm({ ...form, descricao: e.target.value })}
+                required
+              />
             </div>
-            <span className={`tabular shrink-0 text-sm font-medium ${l.valor < 0 ? "text-danger" : "text-success"}`}>
-              {formatarMoeda(l.valor)}
-            </span>
-            <button
-              onClick={() => excluir(l.id)}
-              className="shrink-0 p-2 text-cream-100/40 hover:text-danger"
-              aria-label="Excluir lançamento"
-            >
-              <Trash2 size={16} />
+
+            <div>
+              <label className="mb-1 block text-sm text-cream-100/80">Valor (parcela/mensalidade)</label>
+              <input
+                className="input-dominium tabular"
+                inputMode="decimal"
+                placeholder="0,00"
+                value={form.valor}
+                onChange={(e) => setForm({ ...form, valor: e.target.value })}
+                required
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, tipo: "fixo", parcelas: "" })}
+                className={`min-h-[44px] rounded-xl border text-sm ${
+                  form.tipo === "fixo" ? "border-gold-500 text-gold-300" : "border-navy-700 text-cream-100/60"
+                }`}
+              >
+                Fixo
+              </button>
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, tipo: "temporario" })}
+                className={`min-h-[44px] rounded-xl border text-sm ${
+                  form.tipo === "temporario"
+                    ? "border-gold-500 text-gold-300"
+                    : "border-navy-700 text-cream-100/60"
+                }`}
+              >
+                Temporário
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1 block text-sm text-cream-100/80">Mês início</label>
+                <input
+                  className="input-dominium"
+                  type="month"
+                  value={form.mesInicio}
+                  onChange={(e) => setForm({ ...form, mesInicio: e.target.value })}
+                  required
+                />
+              </div>
+              {form.tipo === "temporario" && (
+                <div>
+                  <label className="mb-1 block text-sm text-cream-100/80">Nº parcelas</label>
+                  <input
+                    className="input-dominium"
+                    inputMode="numeric"
+                    value={form.parcelas}
+                    onChange={(e) => setForm({ ...form, parcelas: e.target.value })}
+                    required
+                  />
+                </div>
+              )}
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm text-cream-100/80">Observações (opcional)</label>
+              <input
+                className="input-dominium"
+                value={form.observacoes}
+                onChange={(e) => setForm({ ...form, observacoes: e.target.value })}
+              />
+            </div>
+
+            {erroForm && <p className="text-sm text-danger">{erroForm}</p>}
+
+            <button type="submit" className="btn-gold" disabled={salvando}>
+              {salvando ? "Registrando..." : "Registrar lançamento"}
             </button>
+          </form>
+
+          <div className="card-dominium p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <p className="text-sm text-cream-100">{instanciaSelecionada.nome}</p>
+                <p className="tabular text-lg font-semibold text-gold-gradient">{formatarMoeda(totalJanela)}</p>
+              </div>
+              <button
+                onClick={() => setConfirmarExclusaoInstancia(true)}
+                className="p-2 text-cream-100/40 hover:text-danger"
+                aria-label="Excluir instância"
+              >
+                <Trash2 size={18} />
+              </button>
+            </div>
+
+            {!carregandoGaveta && lancamentos.length === 0 && (
+              <p className="py-4 text-center text-sm text-cream-100/50">Nenhum lançamento nesta instância.</p>
+            )}
+
+            <div className="flex flex-col gap-2">
+              {lancamentos.map((l) => (
+                <div key={l.id} className="flex items-center gap-3 border-t border-navy-700 pt-2 first:border-t-0 first:pt-0">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm text-cream-100">{l.descricao}</p>
+                    {l.tipo === "fixo" ? (
+                      <p className="tabular text-xs text-cream-100/60">{formatarMoeda(l.valor)}/mês · FIXO</p>
+                    ) : (
+                      <p className="tabular text-xs text-cream-100/60">
+                        {formatarMoeda(l.valor)}/parcela · {l.restantes}/{l.parcelas} restantes · resta{" "}
+                        {formatarMoeda(l.totalRestante || 0)}
+                      </p>
+                    )}
+                  </div>
+                  {editando?.id === l.id ? (
+                    <div className="flex items-center gap-1">
+                      <input
+                        className="input-dominium w-24 py-1"
+                        value={editando.valor}
+                        onChange={(e) => setEditando({ id: l.id, valor: e.target.value })}
+                        autoFocus
+                      />
+                      <button onClick={salvarEdicao} className="text-xs text-gold-300">
+                        OK
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setEditando({ id: l.id, valor: String(l.valor) })}
+                      className="p-2 text-cream-100/40 hover:text-gold-300"
+                      aria-label="Editar valor"
+                    >
+                      <Pencil size={15} />
+                    </button>
+                  )}
+                  <button
+                    onClick={() => excluirLancamento(l.id)}
+                    className="p-2 text-cream-100/40 hover:text-danger"
+                    aria-label="Excluir lançamento"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </div>
+              ))}
+            </div>
           </div>
-        ))}
-      </div>
+        </>
+      )}
+
+      {novaInstancia && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center">
+          <form onSubmit={criarInstancia} className="card-dominium w-full max-w-sm rounded-b-none p-5 sm:rounded-b-2xl">
+            <h2 className="mb-4 font-brand text-lg text-cream-100">Nova instância</h2>
+            <div className="mb-4">
+              <label className="mb-1 block text-sm text-cream-100/80">Nome</label>
+              <input
+                className="input-dominium"
+                value={novaInstancia.nome}
+                onChange={(e) => setNovaInstancia({ ...novaInstancia, nome: e.target.value })}
+                required
+                autoFocus
+              />
+            </div>
+            <div className="mb-5">
+              <label className="mb-2 block text-sm text-cream-100/80">Cor</label>
+              <div className="flex flex-wrap gap-2">
+                {PALETA_INSTANCIA.map((cor) => (
+                  <button
+                    type="button"
+                    key={cor}
+                    onClick={() => setNovaInstancia({ ...novaInstancia, cor })}
+                    className="h-8 w-8 rounded-full border-2"
+                    style={{ background: cor, borderColor: novaInstancia.cor === cor ? "#F7F5F0" : "transparent" }}
+                  />
+                ))}
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setNovaInstancia(null)}
+                className="flex-1 rounded-xl border border-navy-700 py-3 text-sm text-cream-100/70"
+              >
+                Cancelar
+              </button>
+              <button type="submit" className="btn-gold flex-1">
+                Criar
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {confirmarExclusaoInstancia && instanciaSelecionada && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="card-dominium w-full max-w-sm p-5 text-center">
+            <p className="mb-4 text-sm text-cream-100">
+              Excluir &quot;{instanciaSelecionada.nome}&quot;? Todos os lançamentos e pagamentos vinculados
+              serão apagados junto.
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setConfirmarExclusaoInstancia(false)}
+                className="flex-1 rounded-xl border border-navy-700 py-3 text-sm text-cream-100/70"
+              >
+                Cancelar
+              </button>
+              <button onClick={excluirInstancia} className="flex-1 rounded-xl bg-danger py-3 text-sm font-medium text-cream-100">
+                Excluir
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
