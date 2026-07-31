@@ -203,7 +203,7 @@ export default function LancamentosPage() {
 
       {estado === "geral" && (
         <>
-          <div className="mb-4 flex flex-col gap-4">
+          <div className="mb-4 grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
             {instanciasDoGrupo.map((i) => (
               <GavetaCard
                 key={i.id}
