@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+
+# Env files (segredos reais nunca vao pro git)
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Next.js
+.next/
+frontend/.next/
+out/
+
+# Prisma / banco local
+backend/prisma/dev.db
+backend/prisma/dev.db-journal
+
+# Logs
+*.log
+npm-debug.log*
+
+# Build
+dist/
+build/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+
+# Vercel
+.vercel

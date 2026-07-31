@@ -1,0 +1,68 @@
+// Prototipo local: SQLite. Ao migrar para Supabase, trocar provider para "postgresql"
+// e DATABASE_URL para a connection string do pooler (ver PROMPT_DOMINIUM.md secao 9).
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Usuario {
+  id                  String    @id @default(uuid())
+  nome                String
+  cpf                 String    @unique
+  email               String    @unique
+  emailVerificado     Boolean   @default(false)
+  senha               String
+  resetToken          String?
+  resetTokenExpiracao DateTime?
+  criadoEm            DateTime  @default(now())
+  atualizadoEm        DateTime  @updatedAt
+
+  instancias  Instancia[]
+  lancamentos Lancamento[]
+  recortes    Recorte[]
+}
+
+model Instancia {
+  id        String    @id @default(uuid())
+  usuarioId String
+  usuario   Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  nome      String
+  tipo      String
+  cor       String
+  icone     String
+  metaValor Float?
+  metaPrazo DateTime?
+  arquivada Boolean   @default(false)
+  ordem     Int       @default(0)
+  criadoEm  DateTime  @default(now())
+
+  lancamentos Lancamento[]
+}
+
+model Lancamento {
+  id          String    @id @default(uuid())
+  usuarioId   String
+  usuario     Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  instanciaId String
+  instancia   Instancia @relation(fields: [instanciaId], references: [id], onDelete: Cascade)
+  tipo        String
+  valor       Float
+  descricao   String?
+  data        DateTime
+  tags        String   @default("")
+  recorrente  Boolean   @default(false)
+  criadoEm    DateTime  @default(now())
+}
+
+model Recorte {
+  id        String   @id @default(uuid())
+  usuarioId String
+  usuario   Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  nome      String
+  filtros   String
+  criadoEm  DateTime @default(now())
+}

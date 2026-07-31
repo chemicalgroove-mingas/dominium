@@ -1,0 +1,102 @@
+@import "tailwindcss";
+
+:root {
+  --dominium-navy-950: #0b131f;
+  --dominium-navy-900: #0e1a2b;
+  --dominium-navy-800: #16283f;
+  --dominium-navy-700: #1f3552;
+  --dominium-gold-500: #c9a24b;
+  --dominium-gold-300: #e3c77a;
+  --dominium-cream-100: #f7f5f0;
+  --dominium-white: #ffffff;
+  --dominium-success: #4caf7d;
+  --dominium-danger: #d9614f;
+
+  --background: var(--dominium-navy-900);
+  --foreground: var(--dominium-cream-100);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+
+  --color-navy-950: var(--dominium-navy-950);
+  --color-navy-900: var(--dominium-navy-900);
+  --color-navy-800: var(--dominium-navy-800);
+  --color-navy-700: var(--dominium-navy-700);
+  --color-gold-500: var(--dominium-gold-500);
+  --color-gold-300: var(--dominium-gold-300);
+  --color-cream-100: var(--dominium-cream-100);
+  --color-success: var(--dominium-success);
+  --color-danger: var(--dominium-danger);
+
+  --font-serif: var(--font-fraunces);
+  --font-sans: var(--font-inter);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), system-ui, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.font-brand {
+  font-family: var(--font-serif), Georgia, serif;
+}
+
+.text-gold-gradient {
+  background: linear-gradient(120deg, var(--dominium-gold-300), var(--dominium-gold-500));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+.card-dominium {
+  background: var(--dominium-navy-800);
+  border: 1px solid rgba(201, 162, 75, 0.18);
+  border-radius: 1rem;
+}
+
+.input-dominium {
+  background: var(--dominium-navy-950);
+  border: 1px solid var(--dominium-navy-700);
+  color: var(--dominium-cream-100);
+  border-radius: 0.75rem;
+  padding: 0.75rem 1rem;
+  font-size: 1rem;
+  width: 100%;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.input-dominium:focus {
+  border-color: var(--dominium-gold-500);
+}
+
+.btn-gold {
+  background: linear-gradient(120deg, var(--dominium-gold-300), var(--dominium-gold-500));
+  color: var(--dominium-navy-950);
+  font-weight: 600;
+  border-radius: 0.75rem;
+  padding: 0.75rem 1.25rem;
+  min-height: 44px;
+  transition: opacity 0.15s ease, transform 0.1s ease;
+}
+
+.btn-gold:active {
+  transform: scale(0.98);
+}
+
+.btn-gold:disabled {
+  opacity: 0.5;
+}
+
+::selection {
+  background: var(--dominium-gold-500);
+  color: var(--dominium-navy-950);
+}
