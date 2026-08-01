@@ -1037,6 +1037,27 @@ function ModalProjeto({
           />
         </div>
 
+        <div className="mb-4 flex min-h-[4.5rem] items-center rounded-xl border border-gold-500/30 bg-gold-500/5 p-3">
+          <p className="text-sm font-medium text-cream-100">
+            {tipo === "fixo" ? (
+              "Aporte automático, sem prazo definido — repete todo mês até você concluir ou pausar o projeto."
+            ) : plano ? (
+              <>
+                <span className="text-gold-gradient font-semibold">
+                  {plano.parcelas} parcela{plano.parcelas === 1 ? "" : "s"} de {formatarMoeda(plano.valorParcela)}
+                  {plano.valorUltima !== plano.valorParcela ? `, última de ${formatarMoeda(plano.valorUltima)}` : ""}
+                </span>
+                <br />
+                <span className="text-xs text-cream-100/60">
+                  termina em {formatarMesLabel(somarMeses(mesInicio, plano.parcelas - 1))}
+                </span>
+              </>
+            ) : (
+              "Preencha as informações abaixo para ver a simulação."
+            )}
+          </p>
+        </div>
+
         <div className="mb-3 grid grid-cols-2 gap-2">
           <button
             type="button"
@@ -1089,18 +1110,6 @@ function ModalProjeto({
         <div className="mb-4">
           <CampoMes label="Mês início" value={mesInicio} onChange={setMesInicio} />
         </div>
-
-        <p className="mb-4 min-h-[2.5em] text-xs text-cream-100/50">
-          {tipo === "fixo"
-            ? "Aporte automático, sem prazo definido — repete todo mês até você concluir ou pausar o projeto."
-            : plano
-              ? `${plano.parcelas} parcela${plano.parcelas === 1 ? "" : "s"} de ${formatarMoeda(plano.valorParcela)}${
-                  plano.valorUltima !== plano.valorParcela ? `, última de ${formatarMoeda(plano.valorUltima)}` : ""
-                } · termina em ${formatarMesLabel(somarMeses(mesInicio, plano.parcelas - 1))}.`
-              : modoTemporario === "parcela"
-                ? "Informe a meta e o valor da parcela."
-                : "Informe a meta e o prazo em meses."}
-        </p>
 
         <div className="mb-5">
           <label className="mb-1 block text-sm text-cream-100/80">Observações (opcional)</label>
