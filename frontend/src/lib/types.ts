@@ -142,6 +142,8 @@ export type DashboardData = {
   patrimonioInvestido: number;
   patrimonioPessoal: number;
   patrimonioPatrimonial: number;
+  projecaoPatrimonioPessoal: number;
+  projecaoPatrimonioPatrimonial: number;
   contasInvestimento: { id: string; nome: string; cor: string; subgrupo: Subgrupo; patrimonio: number }[];
   totalInstancias: number;
   totalLancamentos: number;

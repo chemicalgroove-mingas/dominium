@@ -43,6 +43,7 @@ export default function InvestimentosPage() {
   const [modalResgate, setModalResgate] = useState<ContaInvestimento | null>(null);
   const [modalOpcoes, setModalOpcoes] = useState<ContaInvestimento | null>(null);
   const [modalMigrar, setModalMigrar] = useState<ContaInvestimento | null>(null);
+  const [modalAtualizarValor, setModalAtualizarValor] = useState<ContaInvestimento | null>(null);
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -253,6 +254,12 @@ export default function InvestimentosPage() {
                     className="rounded-xl border border-danger px-3 py-2 text-xs text-danger"
                   >
                     Resgatar
+                  </button>
+                  <button
+                    onClick={() => setModalAtualizarValor(conta)}
+                    className="rounded-xl border border-navy-700 px-3 py-2 text-xs text-cream-100/70"
+                  >
+                    Atualizar Valor
                   </button>
                   {conta.metaBatida && (
                     <button
@@ -606,6 +613,17 @@ export default function InvestimentosPage() {
           }}
         />
       )}
+
+      {modalAtualizarValor && (
+        <ModalAtualizarValor
+          conta={modalAtualizarValor}
+          onClose={() => setModalAtualizarValor(null)}
+          onSalvo={async () => {
+            setModalAtualizarValor(null);
+            await carregar();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -751,6 +769,86 @@ function ModalMigrar({
           </button>
           <button type="submit" className="btn-gold flex-1" disabled={salvando || destinos.length === 0}>
             {salvando ? "Migrando..." : "Confirmar migração"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function ModalAtualizarValor({
+  conta,
+  onClose,
+  onSalvo,
+}: {
+  conta: ContaInvestimento;
+  onClose: () => void;
+  onSalvo: () => void;
+}) {
+  const [valorCentavos, setValorCentavos] = useState(numeroParaCentavos(conta.patrimonio));
+  const [descricao, setDescricao] = useState("");
+  const [erro, setErro] = useState("");
+  const [salvando, setSalvando] = useState(false);
+
+  const valorNumerico = centavosParaNumero(valorCentavos);
+  const diferenca = valorNumerico - conta.patrimonio;
+
+  async function salvar(e: React.FormEvent) {
+    e.preventDefault();
+    setErro("");
+    if (valorCentavos < 0) {
+      setErro("Informe um valor valido.");
+      return;
+    }
+    setSalvando(true);
+    try {
+      await api.post(`/api/investimentos/${conta.id}/atualizar-valor`, {
+        valorAtual: valorNumerico,
+        descricao: descricao || undefined,
+      });
+      onSalvo();
+    } catch (err) {
+      setErro(err instanceof ApiError ? err.message : "Nao foi possivel atualizar o valor.");
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center">
+      <form onSubmit={salvar} className="card-dominium w-full max-w-sm rounded-b-none p-5 sm:rounded-b-2xl">
+        <h2 className="mb-1 font-brand text-lg text-cream-100">Atualizar Valor</h2>
+        <p className="mb-4 text-xs text-cream-100/60">
+          {conta.nome} · valor atual no sistema: {formatarMoeda(conta.patrimonio)}
+        </p>
+        <div className="mb-4">
+          <CampoMoeda label="Valor real atual" valorCentavos={valorCentavos} onChange={setValorCentavos} autoFocus required />
+        </div>
+        {Math.abs(diferenca) >= 0.005 && (
+          <p className={`mb-4 text-xs ${diferenca > 0 ? "text-success" : "text-danger"}`}>
+            {diferenca > 0
+              ? `Diferença de ${formatarMoeda(diferenca)} será lançada como um aporte de rendimento.`
+              : `Diferença de ${formatarMoeda(diferenca)} será lançada como um resgate de ajuste.`}
+          </p>
+        )}
+        <div className="mb-5">
+          <label className="mb-1 block text-sm text-cream-100/80">
+            Descrição do ajuste {diferenca > 0 ? "(padrão: Rendimento)" : "(padrão: Ajuste)"}
+          </label>
+          <input
+            className="input-dominium"
+            value={descricao}
+            onChange={(e) => setDescricao(e.target.value)}
+            placeholder={diferenca >= 0 ? "Rendimento" : "Ajuste"}
+          />
+        </div>
+        {erro && <p className="mb-3 text-sm text-danger">{erro}</p>}
+        <div className="flex gap-2">
+          <button type="button" onClick={onClose} className="flex-1 rounded-xl border border-navy-700 py-3 text-sm text-cream-100/70">
+            Cancelar
+          </button>
+          <button type="submit" className="btn-gold flex-1" disabled={salvando}>
+            {salvando ? "Salvando..." : "Confirmar"}
           </button>
         </div>
       </form>

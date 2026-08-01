@@ -145,6 +145,21 @@ router.get('/', asyncHandler(async (req, res) => {
     .reduce((acc, c) => acc + c.patrimonio, 0);
   const patrimonioInvestido = patrimonioPessoal + patrimonioPatrimonial;
 
+  // Projecao: patrimonio atual + aportes futuros esperados nos proximos N meses da janela.
+  function projecaoAportesPorSubgrupo(subgrupo) {
+    const ultimoMesFuturo = somarMeses(proximoMes, mesesJanela - 1);
+    return lancamentos
+      .filter((l) => {
+        const grupo = grupoPorInstancia.get(l.instanciaId);
+        if (grupo !== 'investimento') return false;
+        const instancia = instancias.find((i) => i.id === l.instanciaId);
+        return instancia && instancia.subgrupo === subgrupo;
+      })
+      .reduce((acc, l) => acc + projetarLancamentoNaJanela(l, proximoMes, ultimoMesFuturo).total, 0);
+  }
+  const projecaoPatrimonioPessoal = patrimonioPessoal + projecaoAportesPorSubgrupo('pessoal');
+  const projecaoPatrimonioPatrimonial = patrimonioPatrimonial + projecaoAportesPorSubgrupo('patrimonial');
+
   return res.json({
     janela,
     mesReferencia: ref,
@@ -161,6 +176,8 @@ router.get('/', asyncHandler(async (req, res) => {
     patrimonioInvestido,
     patrimonioPessoal,
     patrimonioPatrimonial,
+    projecaoPatrimonioPessoal,
+    projecaoPatrimonioPatrimonial,
     contasInvestimento,
     totalInstancias: instancias.length,
     totalLancamentos: lancamentos.length,

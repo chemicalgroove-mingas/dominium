@@ -10,6 +10,7 @@ const router = express.Router();
 router.use(autenticar, exigirRole('USER'));
 
 const SUBGRUPOS = ['pessoal', 'patrimonial'];
+const EPS = 0.005;
 
 async function montarConta(instancia) {
   const [aportes, resgates] = await Promise.all([
@@ -183,6 +184,61 @@ router.delete('/resgate/:id', asyncHandler(async (req, res) => {
 
   await prisma.investimento.delete({ where: { id: resgate.id } });
   return res.json({ ok: true });
+}));
+
+const atualizarValorSchema = z.object({
+  valorAtual: z.number().min(0, 'Informe um valor valido.'),
+  descricao: z.string().trim().optional(),
+});
+
+router.post('/:id/atualizar-valor', asyncHandler(async (req, res) => {
+  const parsed = atualizarValorSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ erro: parsed.error.issues[0].message });
+
+  const instancia = await prisma.instancia.findFirst({
+    where: { id: req.params.id, usuarioId: req.usuario.id, grupo: 'investimento' },
+  });
+  if (!instancia) return res.status(404).json({ erro: 'Conta de reserva nao encontrada.' });
+
+  const conta = await montarConta(instancia);
+  const diferenca = parsed.data.valorAtual - conta.patrimonio;
+
+  if (Math.abs(diferenca) < EPS) {
+    return res.json({ ajuste: null, patrimonio: conta.patrimonio });
+  }
+
+  const ref = mesAtual();
+
+  if (diferenca > 0) {
+    const aporte = await prisma.lancamento.create({
+      data: {
+        usuarioId: req.usuario.id,
+        instanciaId: instancia.id,
+        descricao: parsed.data.descricao?.trim() || 'Rendimento',
+        valor: diferenca,
+        tipo: 'temporario',
+        parcelas: 1,
+        mesInicio: ref,
+        mesFim: ref,
+        observacoes: 'Ajuste de valor atualizado pelo usuario.',
+      },
+    });
+    return res.status(201).json({
+      ajuste: { tipo: 'aporte', aporte: { ...aporte, acumulado: valorAcumuladoAporte(aporte), metaBatida: metaBatida(aporte) } },
+      patrimonio: conta.patrimonio + diferenca,
+    });
+  }
+
+  const resgate = await prisma.investimento.create({
+    data: {
+      usuarioId: req.usuario.id,
+      instanciaId: instancia.id,
+      descricao: parsed.data.descricao?.trim() || 'Ajuste',
+      valor: diferenca,
+      observacoes: 'Ajuste de valor atualizado pelo usuario.',
+    },
+  });
+  return res.status(201).json({ ajuste: { tipo: 'resgate', resgate }, patrimonio: conta.patrimonio + diferenca });
 }));
 
 // "Concluir projeto" (arquiva, preservando historico) e "continuar juntando" (edicao

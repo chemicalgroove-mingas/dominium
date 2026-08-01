@@ -89,6 +89,23 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {dados.janela !== "mes" && (
+        <div className="card-dominium grid grid-cols-2 divide-x divide-navy-700 p-4">
+          <div className="pr-3">
+            <p className="text-[11px] text-cream-100/60">Projeção Reserva Pessoal</p>
+            <p className="tabular text-lg font-semibold text-cream-100">
+              {formatarMoeda(dados.projecaoPatrimonioPessoal)}
+            </p>
+          </div>
+          <div className="pl-3">
+            <p className="text-[11px] text-cream-100/60">Projeção Reserva Patrimonial</p>
+            <p className="tabular text-gold-gradient text-lg font-semibold">
+              {formatarMoeda(dados.projecaoPatrimonioPatrimonial)}
+            </p>
+          </div>
+        </div>
+      )}
+
       <SeletorMesReferencia />
 
       {consolidadoCompleto.length > 1 && (
