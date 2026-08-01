@@ -5,10 +5,10 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
     <div className="flex min-h-screen flex-1 flex-col items-center justify-center bg-navy-900 px-4 py-10">
       <div className="mb-8 flex flex-col items-center gap-3 text-center">
         <Image
-          src="/icons/icon-96.png"
+          src="/icons/icon-192.png"
           alt="DOMINIUM"
-          width={72}
-          height={72}
+          width={144}
+          height={144}
           className="rounded-full"
           priority
           unoptimized
