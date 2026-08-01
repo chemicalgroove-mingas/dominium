@@ -9,22 +9,39 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// role: USER | ADMIN — status: ATIVO | INATIVO
 model Usuario {
-  id                  String    @id @default(uuid())
-  nome                String
-  cpf                 String    @unique
-  email               String    @unique
-  emailVerificado     Boolean   @default(false)
-  senha               String
-  resetToken          String?
-  resetTokenExpiracao DateTime?
-  criadoEm            DateTime  @default(now())
-  atualizadoEm        DateTime  @updatedAt
+  id              String    @id @default(uuid())
+  nome            String
+  login           String    @unique
+  senha           String
+  role            String    @default("USER")
+  status          String    @default("ATIVO")
+  deveTrocarSenha Boolean   @default(false)
+  ultimoLogin     DateTime?
+  deletadoEm      DateTime?
+  criadoEm        DateTime  @default(now())
+  atualizadoEm    DateTime  @updatedAt
 
   instancias    Instancia[]
   lancamentos   Lancamento[]
   pagamentos    Pagamento[]
   investimentos Investimento[]
+  vouchers      Voucher[]
+}
+
+// status: ATIVO | USADO | REVOGADO | EXPIRADO
+model Voucher {
+  id          String    @id @default(uuid())
+  codigo      String    @unique
+  status      String    @default("ATIVO")
+  usuarioId   String?
+  usuario     Usuario?  @relation(fields: [usuarioId], references: [id], onDelete: SetNull)
+  criadoEm    DateTime  @default(now())
+  utilizadoEm DateTime?
+  expiraEm    DateTime?
+  criadoPor   String?
+  observacao  String?
 }
 
 // grupo: gasto | receita | investimento

@@ -1,11 +1,11 @@
 const express = require('express');
 const { z } = require('zod');
 const prisma = require('../lib/prisma');
-const { autenticar } = require('../middleware/auth');
+const { autenticar, exigirRole } = require('../middleware/auth');
 const { somarMeses, mesAtual, ultimoDiaDoMes, compararMeses } = require('../utils/mes');
 
 const router = express.Router();
-router.use(autenticar);
+router.use(autenticar, exigirRole('USER'));
 
 const mesSchema = z.string().regex(/^\d{4}-\d{2}$/, 'Use o formato AAAA-MM.');
 const EPS = 0.005;

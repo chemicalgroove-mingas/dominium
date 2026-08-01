@@ -8,13 +8,23 @@ import type { Usuario } from "@/lib/types";
 type AuthContextValue = {
   usuario: Usuario | null;
   carregando: boolean;
-  login: (cpf: string, senha: string) => Promise<void>;
-  cadastrar: (dados: { nome: string; cpf: string; email: string; senha: string }) => Promise<void>;
+  login: (login: string, senha: string) => Promise<void>;
+  cadastrar: (dados: { nome: string; login: string; senha: string; confirmacao: string; voucher: string }) => Promise<void>;
   logout: () => Promise<void>;
   recarregar: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
+
+function redirecionarAposAutenticar(usuario: Usuario, router: ReturnType<typeof useRouter>) {
+  if (usuario.deveTrocarSenha) {
+    router.push("/trocar-senha");
+  } else if (usuario.role === "ADMIN") {
+    router.push("/admin/usuarios");
+  } else {
+    router.push("/dashboard");
+  }
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [usuario, setUsuario] = useState<Usuario | null>(null);
@@ -41,20 +51,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    // Busca a sessao atual ao montar — mesmo padrao ja usado no resto do app
+    // (ver InstanciasContext, Dashboard, etc.) para carregar dados assincronos on-mount.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     recarregar();
   }, [recarregar]);
 
-  const login = useCallback(async (cpf: string, senha: string) => {
-    const data = await api.post<{ usuario: Usuario }>("/api/auth/login", { cpf, senha });
-    setUsuario(data.usuario);
-    router.push("/dashboard");
-  }, [router]);
+  const login = useCallback(
+    async (loginValue: string, senha: string) => {
+      const data = await api.post<{ usuario: Usuario }>("/api/auth/login", { login: loginValue, senha });
+      setUsuario(data.usuario);
+      redirecionarAposAutenticar(data.usuario, router);
+    },
+    [router]
+  );
 
   const cadastrar = useCallback(
-    async (dados: { nome: string; cpf: string; email: string; senha: string }) => {
+    async (dados: { nome: string; login: string; senha: string; confirmacao: string; voucher: string }) => {
       const data = await api.post<{ usuario: Usuario }>("/api/auth/cadastro", dados);
       setUsuario(data.usuario);
-      router.push("/dashboard");
+      redirecionarAposAutenticar(data.usuario, router);
     },
     [router]
   );

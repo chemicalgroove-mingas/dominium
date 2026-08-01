@@ -13,8 +13,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
 
   useEffect(() => {
-    if (!carregando && !usuario) {
+    if (carregando) return;
+    if (!usuario) {
       router.replace("/login");
+    } else if (usuario.deveTrocarSenha) {
+      router.replace("/trocar-senha");
+    } else if (usuario.role === "ADMIN") {
+      // Admin nao acessa telas financeiras — isolamento total entre papeis.
+      router.replace("/admin/usuarios");
     }
   }, [carregando, usuario, router]);
 
@@ -22,7 +28,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     return <div className="flex flex-1 items-center justify-center text-cream-100/60">Carregando...</div>;
   }
 
-  if (!usuario) {
+  if (!usuario || usuario.deveTrocarSenha || usuario.role === "ADMIN") {
     return <div className="flex flex-1 items-center justify-center text-cream-100/60">Redirecionando...</div>;
   }
 

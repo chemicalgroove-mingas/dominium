@@ -3,15 +3,14 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useAuth, ApiError } from "@/contexts/AuthContext";
-import { formatarCpf, cpfValido } from "@/lib/cpf";
 
 export default function CadastroPage() {
   const { cadastrar } = useAuth();
   const [nome, setNome] = useState("");
-  const [cpf, setCpf] = useState("");
-  const [email, setEmail] = useState("");
+  const [loginValue, setLoginValue] = useState("");
   const [senha, setSenha] = useState("");
   const [confirmacao, setConfirmacao] = useState("");
+  const [voucher, setVoucher] = useState("");
   const [erro, setErro] = useState("");
   const [carregando, setCarregando] = useState(false);
 
@@ -19,8 +18,8 @@ export default function CadastroPage() {
     e.preventDefault();
     setErro("");
 
-    if (!cpfValido(cpf)) {
-      setErro("CPF invalido. Confira os numeros digitados.");
+    if (loginValue.trim().length < 3) {
+      setErro("O login precisa ter pelo menos 3 caracteres.");
       return;
     }
     if (senha.length < 8) {
@@ -31,10 +30,14 @@ export default function CadastroPage() {
       setErro("As senhas nao coincidem.");
       return;
     }
+    if (!voucher.trim()) {
+      setErro("Informe o voucher recebido.");
+      return;
+    }
 
     setCarregando(true);
     try {
-      await cadastrar({ nome, cpf, email, senha });
+      await cadastrar({ nome, login: loginValue, senha, confirmacao, voucher });
     } catch (err) {
       setErro(err instanceof ApiError ? err.message : "Nao foi possivel criar sua conta.");
     } finally {
@@ -45,28 +48,17 @@ export default function CadastroPage() {
   return (
     <form onSubmit={handleSubmit} className="card-dominium flex flex-col gap-4 p-6">
       <div>
-        <label className="mb-1 block text-sm text-cream-100/80">Nome completo</label>
+        <label className="mb-1 block text-sm text-cream-100/80">Nome</label>
         <input className="input-dominium" value={nome} onChange={(e) => setNome(e.target.value)} required />
       </div>
       <div>
-        <label className="mb-1 block text-sm text-cream-100/80">CPF</label>
+        <label className="mb-1 block text-sm text-cream-100/80">Login</label>
         <input
           className="input-dominium"
-          inputMode="numeric"
-          placeholder="000.000.000-00"
-          value={cpf}
-          onChange={(e) => setCpf(formatarCpf(e.target.value))}
-          maxLength={14}
-          required
-        />
-      </div>
-      <div>
-        <label className="mb-1 block text-sm text-cream-100/80">Email</label>
-        <input
-          className="input-dominium"
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
+          value={loginValue}
+          onChange={(e) => setLoginValue(e.target.value)}
+          placeholder="Como voce vai entrar (ex: seu primeiro nome)"
+          autoCapitalize="none"
           required
         />
       </div>
@@ -89,6 +81,16 @@ export default function CadastroPage() {
           value={confirmacao}
           onChange={(e) => setConfirmacao(e.target.value)}
           minLength={8}
+          required
+        />
+      </div>
+      <div>
+        <label className="mb-1 block text-sm text-cream-100/80">Voucher</label>
+        <input
+          className="input-dominium tabular uppercase"
+          value={voucher}
+          onChange={(e) => setVoucher(e.target.value)}
+          placeholder="DOM-XXXX-XXXX-XXXX"
           required
         />
       </div>

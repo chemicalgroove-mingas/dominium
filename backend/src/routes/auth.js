@@ -1,82 +1,123 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
-const { v4: uuidv4 } = require('uuid');
 const { z } = require('zod');
 
 const prisma = require('../lib/prisma');
-const { cpfValido, limparCpf, formatarCpf } = require('../utils/cpf');
+const { normalizarLogin } = require('../utils/login');
 const { gerarToken, cookieOptions, autenticar } = require('../middleware/auth');
-const { sendConfirmacaoCadastro, sendPasswordReset } = require('../services/emailService');
+const { limiteLogin, limiteCadastro } = require('../middleware/rateLimit');
 
 const router = express.Router();
 
-const cadastroSchema = z.object({
-  nome: z.string().trim().min(2, 'Informe seu nome completo.'),
-  cpf: z.string().refine(cpfValido, 'CPF invalido.'),
-  email: z.string().trim().email('Email invalido.'),
-  senha: z.string().min(8, 'A senha precisa ter pelo menos 8 caracteres.'),
-});
+const cadastroSchema = z
+  .object({
+    nome: z.string().trim().min(2, 'Informe seu nome completo.'),
+    login: z.string().trim().min(3, 'O login precisa ter pelo menos 3 caracteres.'),
+    senha: z.string().min(8, 'A senha precisa ter pelo menos 8 caracteres.'),
+    confirmacao: z.string(),
+    voucher: z.string().trim().min(1, 'Informe o voucher recebido.'),
+  })
+  .refine((dados) => dados.senha === dados.confirmacao, {
+    message: 'As senhas nao coincidem.',
+    path: ['confirmacao'],
+  });
 
 const loginSchema = z.object({
-  cpf: z.string().min(1, 'Informe seu CPF.'),
+  login: z.string().trim().min(1, 'Informe seu login.'),
   senha: z.string().min(1, 'Informe sua senha.'),
 });
 
-router.post('/cadastro', async (req, res) => {
+function usuarioPublico(usuario) {
+  return {
+    id: usuario.id,
+    nome: usuario.nome,
+    login: usuario.login,
+    role: usuario.role,
+    deveTrocarSenha: usuario.deveTrocarSenha,
+  };
+}
+
+router.post('/cadastro', limiteCadastro, async (req, res) => {
   const parsed = cadastroSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ erro: parsed.error.issues[0].message });
   }
 
-  const { nome, cpf, email, senha } = parsed.data;
-  const cpfLimpo = limparCpf(cpf);
+  const { nome, senha, voucher } = parsed.data;
+  const loginNormalizado = normalizarLogin(parsed.data.login);
+  const codigoVoucher = voucher.trim().toUpperCase();
 
-  const existente = await prisma.usuario.findFirst({
-    where: { OR: [{ cpf: cpfLimpo }, { email: email.toLowerCase() }] },
+  if (loginNormalizado.length < 3) {
+    return res.status(400).json({ erro: 'O login precisa ter pelo menos 3 caracteres.' });
+  }
+
+  const loginExistente = await prisma.usuario.findFirst({
+    where: { login: loginNormalizado, deletadoEm: null },
   });
-  if (existente) {
-    return res.status(409).json({ erro: 'Ja existe uma conta com este CPF ou email.' });
+  if (loginExistente) {
+    return res.status(409).json({ erro: 'Esse login ja esta em uso, escolha outro.' });
   }
 
   const senhaHash = await bcrypt.hash(senha, 12);
-  const emailConfirmacaoToken = uuidv4();
-
-  const usuario = await prisma.usuario.create({
-    data: {
-      nome,
-      cpf: cpfLimpo,
-      email: email.toLowerCase(),
-      senha: senhaHash,
-      resetToken: emailConfirmacaoToken,
-      resetTokenExpiracao: new Date(Date.now() + 24 * 60 * 60 * 1000),
-    },
-  });
 
   try {
-    await sendConfirmacaoCadastro({ to: usuario.email, nome: usuario.nome, token: emailConfirmacaoToken });
-  } catch (err) {
-    console.error('Falha ao enviar email de confirmacao:', err.message);
-  }
+    const usuario = await prisma.$transaction(async (tx) => {
+      const novoUsuario = await tx.usuario.create({
+        data: { nome, login: loginNormalizado, senha: senhaHash, role: 'USER', status: 'ATIVO' },
+      });
 
-  const token = gerarToken(usuario);
-  res.cookie('dominium_token', token, cookieOptions);
-  return res.status(201).json({
-    usuario: { id: usuario.id, nome: usuario.nome, cpf: formatarCpf(usuario.cpf), email: usuario.email },
-  });
+      // Consumo atomico do voucher: so avanca se, na hora exata do UPDATE, o
+      // voucher ainda estiver ATIVO e nao expirado. Se outra requisicao venceu
+      // a corrida primeiro (ou o voucher nao existe/ja foi usado/revogado),
+      // linhasAfetadas vem 0 e a transacao inteira e desfeita (usuario incluso).
+      const linhasAfetadas = await tx.$executeRaw`
+        UPDATE "Voucher"
+        SET "status" = 'USADO', "usuarioId" = ${novoUsuario.id}, "utilizadoEm" = ${new Date()}
+        WHERE "codigo" = ${codigoVoucher}
+          AND "status" = 'ATIVO'
+          AND ("expiraEm" IS NULL OR "expiraEm" >= ${new Date()})
+      `;
+
+      if (linhasAfetadas === 0) {
+        throw new Error('VOUCHER_INVALIDO');
+      }
+
+      return novoUsuario;
+    });
+
+    const token = gerarToken(usuario);
+    res.cookie('dominium_token', token, cookieOptions);
+    return res.status(201).json({ usuario: usuarioPublico(usuario) });
+  } catch (err) {
+    if (err.message === 'VOUCHER_INVALIDO') {
+      return res.status(400).json({ erro: 'Voucher invalido, ja utilizado, revogado ou expirado.' });
+    }
+    if (err.code === 'P2002') {
+      return res.status(409).json({ erro: 'Esse login ja esta em uso, escolha outro.' });
+    }
+    console.error('Erro no cadastro:', err);
+    return res.status(500).json({ erro: 'Nao foi possivel concluir o cadastro. Tente novamente.' });
+  }
 });
 
-router.post('/login', async (req, res) => {
+router.post('/login', limiteLogin, async (req, res) => {
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ erro: parsed.error.issues[0].message });
   }
 
-  const cpfLimpo = limparCpf(parsed.data.cpf);
-  const usuario = await prisma.usuario.findUnique({ where: { cpf: cpfLimpo } });
+  const loginNormalizado = normalizarLogin(parsed.data.login);
+  const usuario = await prisma.usuario.findFirst({
+    where: { login: loginNormalizado, deletadoEm: null },
+  });
 
-  const mensagemGenerica = 'CPF ou senha invalidos.';
+  const mensagemGenerica = 'Login ou senha invalidos.';
   if (!usuario) {
     return res.status(401).json({ erro: mensagemGenerica });
+  }
+
+  if (usuario.status !== 'ATIVO') {
+    return res.status(403).json({ erro: 'Sua conta foi desativada pelo administrador.' });
   }
 
   const senhaOk = await bcrypt.compare(parsed.data.senha, usuario.senha);
@@ -84,11 +125,11 @@ router.post('/login', async (req, res) => {
     return res.status(401).json({ erro: mensagemGenerica });
   }
 
+  await prisma.usuario.update({ where: { id: usuario.id }, data: { ultimoLogin: new Date() } });
+
   const token = gerarToken(usuario);
   res.cookie('dominium_token', token, cookieOptions);
-  return res.json({
-    usuario: { id: usuario.id, nome: usuario.nome, cpf: formatarCpf(usuario.cpf), email: usuario.email },
-  });
+  return res.json({ usuario: usuarioPublico(usuario) });
 });
 
 router.post('/logout', (req, res) => {
@@ -97,84 +138,39 @@ router.post('/logout', (req, res) => {
 });
 
 router.get('/me', autenticar, async (req, res) => {
-  const usuario = await prisma.usuario.findUnique({ where: { id: req.usuario.id } });
-  if (!usuario) return res.status(404).json({ erro: 'Usuario nao encontrado.' });
-  return res.json({
-    usuario: {
-      id: usuario.id,
-      nome: usuario.nome,
-      cpf: formatarCpf(usuario.cpf),
-      email: usuario.email,
-      emailVerificado: usuario.emailVerificado,
-    },
-  });
+  return res.json({ usuario: req.usuario });
 });
 
-router.get('/confirmar-email', async (req, res) => {
-  const { token } = req.query;
-  if (!token) return res.status(400).json({ erro: 'Token ausente.' });
-
-  const usuario = await prisma.usuario.findFirst({
-    where: { resetToken: String(token), resetTokenExpiracao: { gt: new Date() } },
-  });
-  if (!usuario) return res.status(400).json({ erro: 'Token invalido ou expirado.' });
-
-  await prisma.usuario.update({
-    where: { id: usuario.id },
-    data: { emailVerificado: true, resetToken: null, resetTokenExpiracao: null },
-  });
-  return res.json({ ok: true });
-});
-
-router.post('/solicitar-recuperacao', async (req, res) => {
-  const { cpf } = req.body;
-  const cpfLimpo = limparCpf(cpf || '');
-  const mensagem = { mensagem: 'Se o CPF existir em nossa base, um email de recuperacao foi enviado.' };
-
-  const usuario = await prisma.usuario.findUnique({ where: { cpf: cpfLimpo } });
-  if (!usuario) return res.json(mensagem);
-
-  const token = uuidv4();
-  await prisma.usuario.update({
-    where: { id: usuario.id },
-    data: { resetToken: token, resetTokenExpiracao: new Date(Date.now() + 60 * 60 * 1000) },
+const trocarSenhaSchema = z
+  .object({
+    senhaAtual: z.string().min(1, 'Informe sua senha atual.'),
+    novaSenha: z.string().min(8, 'A nova senha precisa ter pelo menos 8 caracteres.'),
+    confirmacao: z.string(),
+  })
+  .refine((dados) => dados.novaSenha === dados.confirmacao, {
+    message: 'As senhas nao coincidem.',
+    path: ['confirmacao'],
   });
 
-  try {
-    await sendPasswordReset({ to: usuario.email, nome: usuario.nome, token });
-  } catch (err) {
-    console.error('Falha ao enviar email de recuperacao:', err.message);
-  }
-
-  return res.json(mensagem);
-});
-
-router.post('/redefinir-senha', async (req, res) => {
-  const schema = z.object({
-    token: z.string().min(1),
-    senha: z.string().min(8, 'A senha precisa ter pelo menos 8 caracteres.'),
-  });
-  const parsed = schema.safeParse(req.body);
+router.post('/trocar-senha', autenticar, async (req, res) => {
+  const parsed = trocarSenhaSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ erro: parsed.error.issues[0].message });
   }
 
-  const usuario = await prisma.usuario.findFirst({
-    where: { resetToken: parsed.data.token, resetTokenExpiracao: { gt: new Date() } },
-  });
-  if (!usuario) {
-    return res.status(400).json({ erro: 'Link invalido ou expirado. Solicite a recuperacao novamente.' });
+  const usuario = await prisma.usuario.findUnique({ where: { id: req.usuario.id } });
+  const senhaOk = await bcrypt.compare(parsed.data.senhaAtual, usuario.senha);
+  if (!senhaOk) {
+    return res.status(401).json({ erro: 'Senha atual incorreta.' });
   }
 
-  const senhaHash = await bcrypt.hash(parsed.data.senha, 12);
-  await prisma.usuario.update({
+  const novaSenhaHash = await bcrypt.hash(parsed.data.novaSenha, 12);
+  const atualizado = await prisma.usuario.update({
     where: { id: usuario.id },
-    data: { senha: senhaHash, resetToken: null, resetTokenExpiracao: null },
+    data: { senha: novaSenhaHash, deveTrocarSenha: false },
   });
 
-  const token = gerarToken(usuario);
-  res.cookie('dominium_token', token, cookieOptions);
-  return res.json({ ok: true });
+  return res.json({ usuario: usuarioPublico(atualizado) });
 });
 
 module.exports = router;

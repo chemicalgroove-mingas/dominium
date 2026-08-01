@@ -3,11 +3,10 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useAuth, ApiError } from "@/contexts/AuthContext";
-import { formatarCpf } from "@/lib/cpf";
 
 export default function LoginPage() {
   const { login } = useAuth();
-  const [cpf, setCpf] = useState("");
+  const [loginValue, setLoginValue] = useState("");
   const [senha, setSenha] = useState("");
   const [erro, setErro] = useState("");
   const [carregando, setCarregando] = useState(false);
@@ -17,7 +16,7 @@ export default function LoginPage() {
     setErro("");
     setCarregando(true);
     try {
-      await login(cpf, senha);
+      await login(loginValue, senha);
     } catch (err) {
       setErro(err instanceof ApiError ? err.message : "Nao foi possivel entrar. Tente novamente.");
     } finally {
@@ -28,14 +27,13 @@ export default function LoginPage() {
   return (
     <form onSubmit={handleSubmit} className="card-dominium flex flex-col gap-4 p-6">
       <div>
-        <label className="mb-1 block text-sm text-cream-100/80">CPF</label>
+        <label className="mb-1 block text-sm text-cream-100/80">Login</label>
         <input
           className="input-dominium"
-          inputMode="numeric"
-          placeholder="000.000.000-00"
-          value={cpf}
-          onChange={(e) => setCpf(formatarCpf(e.target.value))}
-          maxLength={14}
+          value={loginValue}
+          onChange={(e) => setLoginValue(e.target.value)}
+          autoCapitalize="none"
+          autoFocus
           required
         />
       </div>
@@ -55,11 +53,8 @@ export default function LoginPage() {
         {carregando ? "Entrando..." : "Entrar"}
       </button>
       <div className="flex flex-col gap-2 pt-2 text-center text-sm">
-        <Link href="/recuperar-senha" className="text-gold-300 hover:text-gold-500">
-          Esqueci minha senha
-        </Link>
         <Link href="/cadastro" className="text-cream-100/70 hover:text-cream-100">
-          Ainda nao tenho conta — cadastrar
+          Tenho um voucher — criar conta
         </Link>
       </div>
     </form>

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-const ROTAS_PUBLICAS = ["/login", "/cadastro", "/recuperar-senha", "/redefinir-senha", "/confirmar-email"];
+const ROTAS_PUBLICAS = ["/login", "/cadastro"];
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;

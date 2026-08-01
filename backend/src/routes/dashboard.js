@@ -1,11 +1,11 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
-const { autenticar } = require('../middleware/auth');
+const { autenticar, exigirRole } = require('../middleware/auth');
 const { somarMeses, mesAtual, compararMeses, listarMeses, diferencaEmMeses } = require('../utils/mes');
 const { JANELAS, janelaValida, limitesJanela, projetarLancamentoNaJanela } = require('../utils/projecao');
 
 const router = express.Router();
-router.use(autenticar);
+router.use(autenticar, exigirRole('USER'));
 
 function totalPorGrupo(lancamentos, grupoPorInstancia, grupo, inicio, fim) {
   return lancamentos

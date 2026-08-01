@@ -20,9 +20,12 @@ efetivamente implementados (fixo/temporário, pagamentos, projeção por janela 
 - **Frontend**: Next.js 16 (App Router) + TypeScript + Tailwind CSS v4, porta `5000`
 - **Backend**: Express + Prisma, porta `5001`
 - **Banco de dados**: SQLite localmente (protótipo) → PostgreSQL no Supabase em produção
-- **Autenticação**: CPF + senha, JWT em cookie httpOnly, bcrypt (custo 12)
-- **Email transacional**: Brevo (com fallback de simulação em console quando `BREVO_API_KEY` não está configurada)
-- **Deploy alvo**: Vercel (frontend e backend)
+- **Autenticação**: login + senha, JWT em cookie httpOnly, bcrypt (custo 12). Sem e-mail —
+  contas só são criadas por voucher de uso único, gerado pelo administrador. Sem recuperação
+  de senha self-service: esqueceu a senha, fala com o admin.
+- **Papéis**: `USER` (dono de seus próprios dados financeiros) e `ADMIN` (gerencia usuários e
+  vouchers em `/admin`, isolado — nunca vê dados financeiros de ninguém).
+- **Deploy alvo**: Vercel (frontend e backend, ver `vercel.json`)
 
 ## Rodando localmente
 

@@ -1,10 +1,10 @@
 const express = require('express');
 const { z } = require('zod');
 const prisma = require('../lib/prisma');
-const { autenticar } = require('../middleware/auth');
+const { autenticar, exigirRole } = require('../middleware/auth');
 
 const router = express.Router();
-router.use(autenticar);
+router.use(autenticar, exigirRole('USER'));
 
 router.get('/', async (req, res) => {
   const { instanciaId } = req.query;

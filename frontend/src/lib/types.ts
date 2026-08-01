@@ -1,9 +1,34 @@
 export type Usuario = {
   id: string;
   nome: string;
-  cpf: string;
-  email: string;
-  emailVerificado?: boolean;
+  login: string;
+  role: "USER" | "ADMIN";
+  deveTrocarSenha: boolean;
+};
+
+export type UsuarioAdmin = {
+  id: string;
+  nome: string;
+  login: string;
+  status: "ATIVO" | "INATIVO";
+  ultimoLogin: string | null;
+  criadoEm: string;
+};
+
+export type VoucherStatus = "ATIVO" | "USADO" | "REVOGADO" | "EXPIRADO";
+
+export type Voucher = {
+  id: string;
+  codigo: string;
+  status: VoucherStatus;
+  usuarioId: string | null;
+  usuario: { id: string; nome: string; login: string } | null;
+  criadoEm: string;
+  utilizadoEm: string | null;
+  expiraEm: string | null;
+  criadoPor: string | null;
+  observacao: string | null;
+  expirado: boolean;
 };
 
 export type Grupo = "gasto" | "receita" | "investimento";

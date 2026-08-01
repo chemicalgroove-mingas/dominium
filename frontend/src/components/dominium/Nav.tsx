@@ -2,21 +2,28 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, ListChecks, Receipt, PiggyBank, LogOut } from "lucide-react";
+import { LayoutDashboard, ListChecks, Receipt, PiggyBank, LogOut, Users, Ticket, type LucideIcon } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 
-const ITENS = [
+export type ItemNav = { href: string; label: string; Icon: LucideIcon };
+
+export const ITENS_FINANCEIRO: ItemNav[] = [
   { href: "/dashboard", label: "Dashboard", Icon: LayoutDashboard },
   { href: "/lancamentos", label: "Lançamentos", Icon: ListChecks },
   { href: "/pagamentos", label: "Pagamentos", Icon: Receipt },
   { href: "/investimentos", label: "Reserva", Icon: PiggyBank },
 ];
 
-export function BottomNav() {
+export const ITENS_ADMIN: ItemNav[] = [
+  { href: "/admin/usuarios", label: "Usuários", Icon: Users },
+  { href: "/admin/vouchers", label: "Vouchers", Icon: Ticket },
+];
+
+export function BottomNav({ itens = ITENS_FINANCEIRO }: { itens?: ItemNav[] }) {
   const pathname = usePathname();
   return (
     <nav className="fixed inset-x-0 bottom-0 z-30 flex border-t border-navy-700 bg-navy-800 sm:hidden">
-      {ITENS.map(({ href, label, Icon }) => {
+      {itens.map(({ href, label, Icon }) => {
         const ativo = pathname.startsWith(href);
         return (
           <Link
@@ -35,7 +42,7 @@ export function BottomNav() {
   );
 }
 
-export function Sidebar() {
+export function Sidebar({ itens = ITENS_FINANCEIRO }: { itens?: ItemNav[] }) {
   const pathname = usePathname();
   const { usuario, logout } = useAuth();
 
@@ -46,7 +53,7 @@ export function Sidebar() {
         <span className="font-brand text-lg text-cream-100">DOMINIUM</span>
       </div>
       <nav className="flex flex-1 flex-col gap-1">
-        {ITENS.map(({ href, label, Icon }) => {
+        {itens.map(({ href, label, Icon }) => {
           const ativo = pathname.startsWith(href);
           return (
             <Link
