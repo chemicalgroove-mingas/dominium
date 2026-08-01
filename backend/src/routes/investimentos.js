@@ -156,6 +156,130 @@ router.delete('/aporte/:id', asyncHandler(async (req, res) => {
   return res.json({ ok: true });
 }));
 
+const projetoCriarSchema = z.object({
+  subgrupo: z.enum(SUBGRUPOS),
+  nome: z.string().trim().min(1, 'Informe o nome do projeto.'),
+  cor: z.string().trim().min(1, 'Informe uma cor.'),
+  valor: z.number().positive('O valor precisa ser maior que zero.'),
+  tipo: z.enum(['fixo', 'temporario']),
+  parcelas: z.number().int().min(1).nullable().optional(),
+  mesInicio: z.string().regex(/^\d{4}-\d{2}$/, 'Use o formato AAAA-MM.'),
+  observacoes: z.string().trim().optional().nullable(),
+});
+
+router.post('/projeto', asyncHandler(async (req, res) => {
+  const parsed = projetoCriarSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ erro: parsed.error.issues[0].message });
+
+  const erroParcelas = validarParcelasPorTipo(parsed.data);
+  if (erroParcelas) return res.status(400).json({ erro: erroParcelas });
+
+  try {
+    parseMes(parsed.data.mesInicio);
+  } catch {
+    return res.status(400).json({ erro: 'mesInicio invalido.' });
+  }
+
+  const mesFim =
+    parsed.data.tipo === 'temporario' ? somarMeses(parsed.data.mesInicio, parsed.data.parcelas - 1) : null;
+
+  const resultado = await prisma.$transaction(async (tx) => {
+    const instancia = await tx.instancia.create({
+      data: {
+        usuarioId: req.usuario.id,
+        nome: parsed.data.nome,
+        grupo: 'investimento',
+        subgrupo: parsed.data.subgrupo,
+        cor: parsed.data.cor,
+      },
+    });
+    const aporte = await tx.lancamento.create({
+      data: {
+        usuarioId: req.usuario.id,
+        instanciaId: instancia.id,
+        descricao: parsed.data.nome,
+        valor: parsed.data.valor,
+        tipo: parsed.data.tipo,
+        parcelas: parsed.data.tipo === 'temporario' ? parsed.data.parcelas : null,
+        mesInicio: parsed.data.mesInicio,
+        mesFim,
+        observacoes: parsed.data.observacoes || null,
+      },
+    });
+    return { instancia, aporte };
+  });
+
+  return res.status(201).json({
+    instancia: resultado.instancia,
+    aporte: {
+      ...resultado.aporte,
+      acumulado: valorAcumuladoAporte(resultado.aporte),
+      metaBatida: metaBatida(resultado.aporte),
+    },
+  });
+}));
+
+const projetoEditarSchema = z.object({
+  aporteId: z.string().min(1),
+  nome: z.string().trim().min(1, 'Informe o nome do projeto.'),
+  cor: z.string().trim().min(1, 'Informe uma cor.'),
+  valor: z.number().positive('O valor precisa ser maior que zero.'),
+  tipo: z.enum(['fixo', 'temporario']),
+  parcelas: z.number().int().min(1).nullable().optional(),
+  mesInicio: z.string().regex(/^\d{4}-\d{2}$/, 'Use o formato AAAA-MM.'),
+  observacoes: z.string().trim().optional().nullable(),
+});
+
+router.put('/projeto/:instanciaId', asyncHandler(async (req, res) => {
+  const parsed = projetoEditarSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ erro: parsed.error.issues[0].message });
+
+  const erroParcelas = validarParcelasPorTipo(parsed.data);
+  if (erroParcelas) return res.status(400).json({ erro: erroParcelas });
+
+  const instancia = await prisma.instancia.findFirst({
+    where: { id: req.params.instanciaId, usuarioId: req.usuario.id, grupo: 'investimento' },
+  });
+  if (!instancia) return res.status(404).json({ erro: 'Conta de reserva nao encontrada.' });
+
+  const aporte = await prisma.lancamento.findFirst({
+    where: { id: parsed.data.aporteId, usuarioId: req.usuario.id, instanciaId: instancia.id },
+  });
+  if (!aporte) return res.status(404).json({ erro: 'Aporte nao encontrado.' });
+
+  const mesFim =
+    parsed.data.tipo === 'temporario' ? somarMeses(parsed.data.mesInicio, parsed.data.parcelas - 1) : null;
+
+  const resultado = await prisma.$transaction(async (tx) => {
+    const instanciaAtualizada = await tx.instancia.update({
+      where: { id: instancia.id },
+      data: { nome: parsed.data.nome, cor: parsed.data.cor },
+    });
+    const aporteAtualizado = await tx.lancamento.update({
+      where: { id: aporte.id },
+      data: {
+        descricao: parsed.data.nome,
+        valor: parsed.data.valor,
+        tipo: parsed.data.tipo,
+        parcelas: parsed.data.tipo === 'temporario' ? parsed.data.parcelas : null,
+        mesInicio: parsed.data.mesInicio,
+        mesFim,
+        observacoes: parsed.data.observacoes || null,
+      },
+    });
+    return { instancia: instanciaAtualizada, aporte: aporteAtualizado };
+  });
+
+  return res.json({
+    instancia: resultado.instancia,
+    aporte: {
+      ...resultado.aporte,
+      acumulado: valorAcumuladoAporte(resultado.aporte),
+      metaBatida: metaBatida(resultado.aporte),
+    },
+  });
+}));
+
 const resgateSchema = z.object({
   instanciaId: z.string().min(1),
   descricao: z.string().trim().min(1, 'Informe uma descricao.'),

@@ -37,8 +37,9 @@ export default function InvestimentosPage() {
   const [erroForm, setErroForm] = useState("");
   const [salvando, setSalvando] = useState(false);
 
-  const [novaConta, setNovaConta] = useState<{ nome: string; cor: string } | null>(null);
-  const [contaEditando, setContaEditando] = useState<{ id: string; nome: string; cor: string } | null>(null);
+  const [modalProjeto, setModalProjeto] = useState<
+    { modo: "criar" } | { modo: "editar"; conta: ContaInvestimento; aporte: Aporte | null } | null
+  >(null);
   const [contaParaExcluir, setContaParaExcluir] = useState<Instancia | null>(null);
   const [modalResgate, setModalResgate] = useState<ContaInvestimento | null>(null);
   const [modalOpcoes, setModalOpcoes] = useState<ContaInvestimento | null>(null);
@@ -99,22 +100,6 @@ export default function InvestimentosPage() {
     form.tipo === "temporario" && form.mesInicio && form.mesFim
       ? diferencaEmMeses(form.mesInicio, form.mesFim) + 1
       : null;
-
-  async function criarConta(e: React.FormEvent) {
-    e.preventDefault();
-    if (!novaConta) return;
-    await api.post("/api/instancias", { nome: novaConta.nome, grupo: "investimento", subgrupo, cor: novaConta.cor });
-    setNovaConta(null);
-    await Promise.all([recarregarInstancias(), carregar()]);
-  }
-
-  async function salvarEdicaoConta(e: React.FormEvent) {
-    e.preventDefault();
-    if (!contaEditando) return;
-    await api.put(`/api/instancias/${contaEditando.id}`, { nome: contaEditando.nome, cor: contaEditando.cor });
-    setContaEditando(null);
-    await Promise.all([recarregarInstancias(), carregar()]);
-  }
 
   async function excluirConta() {
     if (!contaParaExcluir) return;
@@ -228,9 +213,9 @@ export default function InvestimentosPage() {
                     </span>
                   )}
                   <button
-                    onClick={() => setContaEditando({ id: conta.id, nome: conta.nome, cor: conta.cor })}
+                    onClick={() => setModalProjeto({ modo: "editar", conta, aporte: conta.aportes[0] || null })}
                     className="p-1 text-cream-100/40 hover:text-gold-300"
-                    aria-label="Editar conta"
+                    aria-label="Editar projeto"
                   >
                     <Pencil size={14} />
                   </button>
@@ -282,10 +267,10 @@ export default function InvestimentosPage() {
           )}
 
           <button
-            onClick={() => setNovaConta({ nome: "", cor: COR_SUGERIDA[subgrupo] })}
+            onClick={() => setModalProjeto({ modo: "criar" })}
             className="flex w-full items-center justify-center gap-1 rounded-full border border-dashed border-gold-500/50 px-4 py-3 text-sm text-gold-300"
           >
-            <Plus size={16} /> Nova conta
+            <Plus size={16} /> Novo Projeto
           </button>
         </>
       )}
@@ -457,85 +442,18 @@ export default function InvestimentosPage() {
         </div>
       )}
 
-      {novaConta && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center">
-          <form onSubmit={criarConta} className="card-dominium w-full max-w-sm rounded-b-none p-5 sm:rounded-b-2xl">
-            <h2 className="mb-4 font-brand text-lg text-cream-100">Nova conta — {LABEL_SUBGRUPO[subgrupo]}</h2>
-            <div className="mb-4">
-              <label className="mb-1 block text-sm text-cream-100/80">Nome</label>
-              <input
-                className="input-dominium"
-                value={novaConta.nome}
-                onChange={(e) => setNovaConta({ ...novaConta, nome: e.target.value })}
-                placeholder={subgrupo === "pessoal" ? "Ex: Trocar de celular" : "Ex: Investimento IPCA+"}
-                required
-                autoFocus
-              />
-            </div>
-            <div className="mb-5">
-              <label className="mb-2 block text-sm text-cream-100/80">Cor</label>
-              <div className="flex flex-wrap gap-2">
-                {PALETA_INSTANCIA.map((cor) => (
-                  <button
-                    type="button"
-                    key={cor}
-                    onClick={() => setNovaConta({ ...novaConta, cor })}
-                    className="h-8 w-8 rounded-full border-2"
-                    style={{ background: cor, borderColor: novaConta.cor === cor ? "#F7F5F0" : "transparent" }}
-                  />
-                ))}
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <button type="button" onClick={() => setNovaConta(null)} className="flex-1 rounded-xl border border-navy-700 py-3 text-sm text-cream-100/70">
-                Cancelar
-              </button>
-              <button type="submit" className="btn-gold flex-1">
-                Criar
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {contaEditando && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center">
-          <form onSubmit={salvarEdicaoConta} className="card-dominium w-full max-w-sm rounded-b-none p-5 sm:rounded-b-2xl">
-            <h2 className="mb-4 font-brand text-lg text-cream-100">Editar conta</h2>
-            <div className="mb-4">
-              <label className="mb-1 block text-sm text-cream-100/80">Nome</label>
-              <input
-                className="input-dominium"
-                value={contaEditando.nome}
-                onChange={(e) => setContaEditando({ ...contaEditando, nome: e.target.value })}
-                required
-                autoFocus
-              />
-            </div>
-            <div className="mb-5">
-              <label className="mb-2 block text-sm text-cream-100/80">Cor</label>
-              <div className="flex flex-wrap gap-2">
-                {PALETA_INSTANCIA.map((cor) => (
-                  <button
-                    type="button"
-                    key={cor}
-                    onClick={() => setContaEditando({ ...contaEditando, cor })}
-                    className="h-8 w-8 rounded-full border-2"
-                    style={{ background: cor, borderColor: contaEditando.cor === cor ? "#F7F5F0" : "transparent" }}
-                  />
-                ))}
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <button type="button" onClick={() => setContaEditando(null)} className="flex-1 rounded-xl border border-navy-700 py-3 text-sm text-cream-100/70">
-                Cancelar
-              </button>
-              <button type="submit" className="btn-gold flex-1">
-                Salvar
-              </button>
-            </div>
-          </form>
-        </div>
+      {modalProjeto && (
+        <ModalProjeto
+          modo={modalProjeto.modo}
+          subgrupo={subgrupo}
+          conta={modalProjeto.modo === "editar" ? modalProjeto.conta : null}
+          aporte={modalProjeto.modo === "editar" ? modalProjeto.aporte : null}
+          onClose={() => setModalProjeto(null)}
+          onSalvo={async () => {
+            setModalProjeto(null);
+            await Promise.all([recarregarInstancias(), carregar()]);
+          }}
+        />
       )}
 
       {contaParaExcluir && (
@@ -769,6 +687,220 @@ function ModalMigrar({
           </button>
           <button type="submit" className="btn-gold flex-1" disabled={salvando || destinos.length === 0}>
             {salvando ? "Migrando..." : "Confirmar migração"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function ModalProjeto({
+  modo,
+  subgrupo,
+  conta,
+  aporte,
+  onClose,
+  onSalvo,
+}: {
+  modo: "criar" | "editar";
+  subgrupo: Subgrupo;
+  conta: ContaInvestimento | null;
+  aporte: Aporte | null;
+  onClose: () => void;
+  onSalvo: () => void;
+}) {
+  const [nome, setNome] = useState(conta?.nome ?? "");
+  const [cor, setCor] = useState(conta?.cor ?? COR_SUGERIDA[subgrupo]);
+  const [valorCentavos, setValorCentavos] = useState(aporte ? numeroParaCentavos(aporte.valor) : 0);
+  const [tipo, setTipo] = useState<TipoLancamento>(aporte?.tipo ?? "fixo");
+  const [mesInicio, setMesInicio] = useState(aporte?.mesInicio ?? mesAtual());
+  const [mesFim, setMesFim] = useState(
+    aporte?.tipo === "temporario" ? aporte.mesFim || somarMeses(aporte.mesInicio, (aporte.parcelas || 1) - 1) : ""
+  );
+  const [observacoes, setObservacoes] = useState(aporte?.observacoes ?? "");
+  const [erro, setErro] = useState("");
+  const [salvando, setSalvando] = useState(false);
+
+  const parcelasCalculadas =
+    tipo === "temporario" && mesInicio && mesFim ? diferencaEmMeses(mesInicio, mesFim) + 1 : null;
+
+  async function salvar(e: React.FormEvent) {
+    e.preventDefault();
+    setErro("");
+
+    const valorNumerico = centavosParaNumero(valorCentavos);
+    if (!valorNumerico || valorNumerico <= 0) {
+      setErro("Informe um valor maior que zero.");
+      return;
+    }
+    if (tipo === "temporario" && (!parcelasCalculadas || parcelasCalculadas < 1)) {
+      setErro("Mês fim precisa ser igual ou posterior ao mês início.");
+      return;
+    }
+
+    setSalvando(true);
+    try {
+      if (modo === "criar") {
+        await api.post("/api/investimentos/projeto", {
+          subgrupo,
+          nome,
+          cor,
+          valor: valorNumerico,
+          tipo,
+          parcelas: tipo === "temporario" ? parcelasCalculadas : null,
+          mesInicio,
+          observacoes: observacoes || null,
+        });
+      } else if (aporte) {
+        await api.put(`/api/investimentos/projeto/${conta!.id}`, {
+          aporteId: aporte.id,
+          nome,
+          cor,
+          valor: valorNumerico,
+          tipo,
+          parcelas: tipo === "temporario" ? parcelasCalculadas : null,
+          mesInicio,
+          observacoes: observacoes || null,
+        });
+      } else {
+        await api.put(`/api/instancias/${conta!.id}`, { nome, cor });
+        await api.post("/api/investimentos/aporte", {
+          instanciaId: conta!.id,
+          descricao: nome,
+          valor: valorNumerico,
+          tipo,
+          parcelas: tipo === "temporario" ? parcelasCalculadas : null,
+          mesInicio,
+          observacoes: observacoes || null,
+        });
+      }
+      onSalvo();
+    } catch (err) {
+      setErro(err instanceof ApiError ? err.message : "Nao foi possivel salvar o projeto.");
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center">
+      <form
+        onSubmit={salvar}
+        className="card-dominium max-h-[90vh] w-full max-w-sm overflow-y-auto rounded-b-none p-5 sm:rounded-b-2xl"
+      >
+        <h2 className="mb-4 font-brand text-lg text-cream-100">
+          {modo === "criar" ? `Novo Projeto — ${LABEL_SUBGRUPO[subgrupo]}` : "Editar Projeto"}
+        </h2>
+
+        <div className="mb-4">
+          <label className="mb-1 block text-sm text-cream-100/80">Nome do projeto</label>
+          <input
+            className="input-dominium"
+            value={nome}
+            onChange={(e) => setNome(e.target.value)}
+            placeholder={subgrupo === "pessoal" ? "Ex: Trocar de celular" : "Ex: Investimento IPCA+"}
+            required
+            autoFocus
+          />
+        </div>
+
+        <div className="mb-4">
+          <label className="mb-2 block text-sm text-cream-100/80">Cor</label>
+          <div className="flex flex-wrap gap-2">
+            {PALETA_INSTANCIA.map((c) => (
+              <button
+                type="button"
+                key={c}
+                onClick={() => setCor(c)}
+                className="h-8 w-8 rounded-full border-2"
+                style={{ background: c, borderColor: cor === c ? "#F7F5F0" : "transparent" }}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div className="mb-4">
+          <CampoMoeda label="Valor da parcela" valorCentavos={valorCentavos} onChange={setValorCentavos} required />
+        </div>
+
+        <div className="mb-4 grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => setTipo("fixo")}
+            className={`min-h-[44px] rounded-xl border text-sm ${
+              tipo === "fixo" ? "border-gold-500 text-gold-300" : "border-navy-700 text-cream-100/60"
+            }`}
+          >
+            Fixo (automático)
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setTipo("temporario");
+              setMesFim(mesFim || mesInicio);
+            }}
+            className={`min-h-[44px] rounded-xl border text-sm ${
+              tipo === "temporario" ? "border-gold-500 text-gold-300" : "border-navy-700 text-cream-100/60"
+            }`}
+          >
+            Temporário
+          </button>
+        </div>
+
+        <div className="mb-2 grid grid-cols-2 gap-3">
+          <div>
+            <label className="mb-1 block text-sm text-cream-100/80">Mês início</label>
+            <input
+              className="input-dominium"
+              type="month"
+              value={mesInicio}
+              onChange={(e) => setMesInicio(e.target.value)}
+              required
+            />
+          </div>
+          {tipo === "temporario" && (
+            <div>
+              <label className="mb-1 block text-sm text-cream-100/80">Mês fim</label>
+              <input
+                className="input-dominium"
+                type="month"
+                value={mesFim}
+                min={mesInicio}
+                onChange={(e) => setMesFim(e.target.value)}
+                required
+              />
+            </div>
+          )}
+        </div>
+
+        {tipo === "temporario" && (
+          <p className="mb-4 text-xs text-cream-100/50">
+            {parcelasCalculadas && parcelasCalculadas >= 1
+              ? `${parcelasCalculadas} parcela${parcelasCalculadas === 1 ? "" : "s"} calculada${
+                  parcelasCalculadas === 1 ? "" : "s"
+                } automaticamente.`
+              : "Mês fim precisa ser igual ou posterior ao mês início."}
+          </p>
+        )}
+
+        <div className="mb-5">
+          <label className="mb-1 block text-sm text-cream-100/80">Observações (opcional)</label>
+          <input
+            className="input-dominium"
+            value={observacoes}
+            onChange={(e) => setObservacoes(e.target.value)}
+            placeholder="Onde você vai guardar esse valor? Ex: Caixinha, Cofrinho, Embaixo do colchão..."
+          />
+        </div>
+
+        {erro && <p className="mb-3 text-sm text-danger">{erro}</p>}
+
+        <div className="flex gap-2">
+          <button type="button" onClick={onClose} className="flex-1 rounded-xl border border-navy-700 py-3 text-sm text-cream-100/70">
+            Cancelar
+          </button>
+          <button type="submit" className="btn-gold flex-1" disabled={salvando}>
+            {salvando ? "Salvando..." : modo === "criar" ? "Criar projeto" : "Salvar"}
           </button>
         </div>
       </form>
