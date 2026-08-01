@@ -624,14 +624,24 @@ function ListaValores({
                             <span className="tabular flex-1 text-xs text-cream-100/70">
                               {formatarMoeda(v.valor)} ·{" "}
                               {new Date(v.criadoEm).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}
+                              {v.viaRecalculo && " · recálculo"}
                             </span>
-                            <button
-                              onClick={() => onExcluirValorExtra(v.id)}
-                              className="p-1 text-cream-100/40 hover:text-danger"
-                              aria-label="Reverter valor extra"
-                            >
-                              <Trash2 size={13} />
-                            </button>
+                            {v.viaRecalculo ? (
+                              <button
+                                onClick={() => onEditarValor(a)}
+                                className="text-[11px] text-gold-300/80 hover:text-gold-300"
+                              >
+                                revisar projeto
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => onExcluirValorExtra(v.id)}
+                                className="p-1 text-cream-100/40 hover:text-danger"
+                                aria-label="Reverter valor extra"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -1225,54 +1235,67 @@ function ModalLancarValor({
 }) {
   const [valorCentavos, setValorCentavos] = useState(0);
   const [erro, setErro] = useState("");
-  const [salvando, setSalvando] = useState(false);
+  const [salvando, setSalvando] = useState<"abater" | "recalcular" | null>(null);
 
   const faltam = Math.max((aporteMeta.valorMeta ?? 0) - aporteMeta.acumulado, 0);
 
-  async function salvar(e: React.FormEvent) {
-    e.preventDefault();
+  async function salvar(endpoint: "abater" | "recalcular") {
     setErro("");
     const valorNumerico = centavosParaNumero(valorCentavos);
     if (!valorNumerico || valorNumerico <= 0) {
       setErro("Informe um valor maior que zero.");
       return;
     }
-    setSalvando(true);
+    setSalvando(endpoint);
     try {
-      await api.post(`/api/investimentos/aporte/${aporteMeta.id}/abater`, { valor: valorNumerico });
+      await api.post(`/api/investimentos/aporte/${aporteMeta.id}/${endpoint}`, { valor: valorNumerico });
       onSalvo();
     } catch (err) {
       setErro(err instanceof ApiError ? err.message : "Nao foi possivel lançar o valor.");
     } finally {
-      setSalvando(false);
+      setSalvando(null);
     }
   }
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center">
-      <form onSubmit={salvar} className="card-dominium w-full max-w-sm rounded-b-none p-5 sm:rounded-b-2xl">
+      <div className="card-dominium w-full max-w-sm rounded-b-none p-5 sm:rounded-b-2xl">
         <h2 className="mb-1 font-brand text-lg text-cream-100">Lançar Valor Extra</h2>
         <p className="mb-4 text-xs text-cream-100/60">
           {conta.nome} · faltam {formatarMoeda(faltam)} para a meta
-        </p>
-        <p className="mb-4 text-xs text-cream-100/40">
-          Esse valor abate diretamente das últimas parcelas da meta, acelerando o quanto falta para bater o
-          objetivo.
         </p>
 
         <CampoMoeda label="Valor" valorCentavos={valorCentavos} onChange={setValorCentavos} autoFocus required />
 
         {erro && <p className="mt-3 text-sm text-danger">{erro}</p>}
 
-        <div className="mt-5 flex gap-2">
-          <button type="button" onClick={onClose} className="flex-1 rounded-xl border border-navy-700 py-3 text-sm text-cream-100/70">
+        <div className="mt-5 flex flex-col gap-2">
+          <button
+            type="button"
+            onClick={() => salvar("abater")}
+            className="btn-gold py-3 text-sm"
+            disabled={salvando !== null}
+          >
+            {salvando === "abater" ? "Salvando..." : "Manter Valor da Parcela (reduz o tempo)"}
+          </button>
+          <button
+            type="button"
+            onClick={() => salvar("recalcular")}
+            className="rounded-xl border border-gold-500 py-3 text-sm text-gold-300"
+            disabled={salvando !== null}
+          >
+            {salvando === "recalcular" ? "Salvando..." : "Reduzir Valor da Parcela (mantém o tempo atual)"}
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-xl border border-navy-700 py-3 text-sm text-cream-100/70"
+            disabled={salvando !== null}
+          >
             Cancelar
           </button>
-          <button type="submit" className="btn-gold flex-1" disabled={salvando}>
-            {salvando ? "Salvando..." : "Lançar Valor Extra"}
-          </button>
         </div>
-      </form>
+      </div>
     </div>
   );
 }

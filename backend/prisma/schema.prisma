@@ -85,6 +85,12 @@ model Lancamento {
   // total acumulado (pode ser negativo) de rendimento/perda via "Atualizar Valor" —
   // um unico contador que so soma/subtrai a cada atualizacao, sem itens avulsos.
   valorRendimento    Float    @default(0)
+  // tudo que ja foi acumulado ate o momento do ultimo "Reduzir Valor da Parcela"
+  // (recalculo). Congela o passado: a partir dai, mesInicio/valor/parcelas/
+  // valorUltimaParcela sao reescritos para representar so o que falta, e
+  // valorAbatido volta a zero — sem isso, o recalculo reescreveria parcelas
+  // que ja venceram no passado.
+  valorBaseAcumulado Float    @default(0)
   // id do Pagamento (nao FK, so bookkeeping) que gerou este lancamento
   // automaticamente (excedente ou pendencia de "outro valor" em Pagamentos).
   criadoPorPagamentoId String?
@@ -104,6 +110,10 @@ model ValorExtra {
   lancamento   Lancamento @relation(fields: [lancamentoId], references: [id], onDelete: Cascade)
   valor        Float
   descricao    String?
+  // true quando aplicado via "Reduzir Valor da Parcela" (recalculo do
+  // cronograma) — nao pode ser revertido individualmente, ja que reescreveu o
+  // cronograma inteiro pra frente; para ajustar, o usuario revisa o projeto.
+  viaRecalculo Boolean    @default(false)
   criadoEm     DateTime   @default(now())
 }
 

@@ -12,10 +12,9 @@ const { projetarLancamentoNaJanela, valoresPorParcela } = require('./projecao');
 // lancamento inteiro sempre fecha em valorMeta, abatido incluso.
 function valorAcumuladoAporte(lancamento) {
   const base = projetarLancamentoNaJanela(lancamento, lancamento.mesInicio, mesAtual()).total;
-  if (lancamento.tipo === 'temporario' && lancamento.valorAbatido) {
-    return Math.round((base + lancamento.valorAbatido) * 100) / 100;
-  }
-  return base;
+  if (lancamento.tipo !== 'temporario') return base;
+  const extra = (lancamento.valorAbatido || 0) + (lancamento.valorBaseAcumulado || 0);
+  return extra ? Math.round((base + extra) * 100) / 100 : base;
 }
 
 // Quantas parcelas ja decorreram (mes de inicio ate o mes atual, limitado ao mesFim).

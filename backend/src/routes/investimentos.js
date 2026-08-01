@@ -211,13 +211,86 @@ router.post('/aporte/:id/abater', asyncHandler(async (req, res) => {
   });
 }));
 
+// "Reduzir Valor da Parcela": em vez de abater do fim pra tras (mantendo o
+// valor da parcela e encolhendo o prazo), recalcula um novo valor uniforme
+// para as parcelas restantes, mantendo a quantidade de parcelas que faltava
+// no momento do lancamento. O passado (ja decorrido) fica congelado em
+// valorBaseAcumulado; o cronograma reinicia no proximo mes ainda nao
+// decorrido, com o novo valor.
+router.post('/aporte/:id/recalcular', asyncHandler(async (req, res) => {
+  const parsed = abaterSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ erro: parsed.error.issues[0].message });
+
+  const aporte = await prisma.lancamento.findFirst({ where: { id: req.params.id, usuarioId: req.usuario.id } });
+  if (!aporte) return res.status(404).json({ erro: 'Aporte nao encontrado.' });
+  if (aporte.tipo !== 'temporario' || aporte.valorMeta == null) {
+    return res.status(400).json({ erro: 'Este aporte nao tem meta definida para recalcular.' });
+  }
+
+  const n = parcelasRestantesComValor(aporte);
+  if (!n || n < 1) {
+    return res.status(400).json({ erro: 'Nao ha parcelas restantes para recalcular.' });
+  }
+
+  const acumuladoAntes = valorAcumuladoAporte(aporte);
+  const novoAcumulado = Math.round((acumuladoAntes + parsed.data.valor) * 100) / 100;
+  const restante = Math.max(0, Math.round((aporte.valorMeta - novoAcumulado) * 100) / 100);
+  const novoValorParcela = Math.floor((restante / n) * 100) / 100;
+  const novaUltimaParcela = Math.round((restante - novoValorParcela * (n - 1)) * 100) / 100;
+  const novoMesInicio = somarMeses(mesAtual(), 1);
+  const novoMesFim = somarMeses(novoMesInicio, n - 1);
+
+  const [, atualizado] = await prisma.$transaction([
+    prisma.valorExtra.create({
+      data: {
+        lancamentoId: aporte.id,
+        valor: parsed.data.valor,
+        descricao: parsed.data.descricao || null,
+        viaRecalculo: true,
+      },
+    }),
+    prisma.lancamento.update({
+      where: { id: aporte.id },
+      data: {
+        mesInicio: novoMesInicio,
+        mesFim: novoMesFim,
+        parcelas: n,
+        valor: novoValorParcela,
+        valorUltimaParcela: novaUltimaParcela,
+        valorAbatido: 0,
+        valorBaseAcumulado: novoAcumulado,
+      },
+      include: { valoresExtras: { orderBy: { criadoEm: 'desc' } } },
+    }),
+  ]);
+
+  return res.status(201).json({
+    aporte: {
+      ...atualizado,
+      acumulado: valorAcumuladoAporte(atualizado),
+      parcelasDecorridas: parcelasDecorridas(atualizado),
+      parcelasRestantesComValor: parcelasRestantesComValor(atualizado),
+      proximaParcela: proximaParcelaValor(atualizado),
+      ultimaParcela: ultimaParcelaEfetiva(atualizado),
+      metaBatida: metaBatida(atualizado),
+    },
+  });
+}));
+
 // Reverte um valor extra individual: apaga o registro e desfaz o abatimento
-// correspondente (soma de volta nas parcelas finais).
+// correspondente (soma de volta nas parcelas finais). Nao permitido para
+// valores aplicados via recalculo (ver rota acima) — o cronograma inteiro foi
+// reescrito, entao a correcao certa e revisar o projeto, nao desfazer isolado.
 router.delete('/valor-extra/:id', asyncHandler(async (req, res) => {
   const extra = await prisma.valorExtra.findFirst({
     where: { id: req.params.id, lancamento: { usuarioId: req.usuario.id } },
   });
   if (!extra) return res.status(404).json({ erro: 'Valor extra nao encontrado.' });
+  if (extra.viaRecalculo) {
+    return res.status(400).json({
+      erro: 'Este valor foi aplicado via recalculo do projeto. Para ajustar, revise o projeto (lapis) em vez de remover este item.',
+    });
+  }
 
   const [, atualizado] = await prisma.$transaction([
     prisma.valorExtra.delete({ where: { id: extra.id } }),

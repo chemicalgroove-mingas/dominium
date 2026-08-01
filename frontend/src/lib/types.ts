@@ -52,6 +52,7 @@ export type ValorExtra = {
   lancamentoId: string;
   valor: number;
   descricao: string | null;
+  viaRecalculo: boolean;
   criadoEm: string;
 };
 
@@ -69,6 +70,7 @@ export type Lancamento = {
   valorUltimaParcela: number | null;
   valorAbatido: number;
   valorRendimento: number;
+  valorBaseAcumulado: number;
   valoresExtras?: ValorExtra[];
   ativo: boolean;
   observacoes: string | null;
