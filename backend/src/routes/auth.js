@@ -6,6 +6,7 @@ const prisma = require('../lib/prisma');
 const { normalizarLogin } = require('../utils/login');
 const { gerarToken, cookieOptions, autenticar } = require('../middleware/auth');
 const { limiteLogin, limiteCadastro } = require('../middleware/rateLimit');
+const { asyncHandler } = require('../utils/asyncHandler');
 
 const router = express.Router();
 
@@ -37,7 +38,7 @@ function usuarioPublico(usuario) {
   };
 }
 
-router.post('/cadastro', limiteCadastro, async (req, res) => {
+router.post('/cadastro', limiteCadastro, asyncHandler(async (req, res) => {
   const parsed = cadastroSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ erro: parsed.error.issues[0].message });
@@ -98,9 +99,9 @@ router.post('/cadastro', limiteCadastro, async (req, res) => {
     console.error('Erro no cadastro:', err);
     return res.status(500).json({ erro: 'Nao foi possivel concluir o cadastro. Tente novamente.' });
   }
-});
+}));
 
-router.post('/login', limiteLogin, async (req, res) => {
+router.post('/login', limiteLogin, asyncHandler(async (req, res) => {
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ erro: parsed.error.issues[0].message });
@@ -130,16 +131,16 @@ router.post('/login', limiteLogin, async (req, res) => {
   const token = gerarToken(usuario);
   res.cookie('dominium_token', token, cookieOptions);
   return res.json({ usuario: usuarioPublico(usuario) });
-});
+}));
 
 router.post('/logout', (req, res) => {
   res.clearCookie('dominium_token', { ...cookieOptions, maxAge: undefined });
   return res.json({ ok: true });
 });
 
-router.get('/me', autenticar, async (req, res) => {
+router.get('/me', autenticar, asyncHandler(async (req, res) => {
   return res.json({ usuario: req.usuario });
-});
+}));
 
 const trocarSenhaSchema = z
   .object({
@@ -152,7 +153,7 @@ const trocarSenhaSchema = z
     path: ['confirmacao'],
   });
 
-router.post('/trocar-senha', autenticar, async (req, res) => {
+router.post('/trocar-senha', autenticar, asyncHandler(async (req, res) => {
   const parsed = trocarSenhaSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ erro: parsed.error.issues[0].message });
@@ -171,6 +172,6 @@ router.post('/trocar-senha', autenticar, async (req, res) => {
   });
 
   return res.json({ usuario: usuarioPublico(atualizado) });
-});
+}));
 
 module.exports = router;

@@ -3,6 +3,7 @@ const { z } = require('zod');
 const prisma = require('../lib/prisma');
 const { autenticar, exigirRole } = require('../middleware/auth');
 const { somarMeses, mesAtual, ultimoDiaDoMes, compararMeses } = require('../utils/mes');
+const { asyncHandler } = require('../utils/asyncHandler');
 
 const router = express.Router();
 router.use(autenticar, exigirRole('USER'));
@@ -39,7 +40,7 @@ async function itensEmAbertoDaInstancia(instancia, ref) {
   return itens;
 }
 
-router.get('/em-aberto', async (req, res) => {
+router.get('/em-aberto', asyncHandler(async (req, res) => {
   const ref = req.query.mesReferencia && mesSchema.safeParse(req.query.mesReferencia).success
     ? String(req.query.mesReferencia)
     : mesAtual();
@@ -65,7 +66,7 @@ router.get('/em-aberto', async (req, res) => {
   const emAtraso = new Date() > vencimento;
 
   return res.json({ mesReferencia: ref, vencimento: vencimento.toISOString(), emAtraso, instancias: resultado });
-});
+}));
 
 async function verificarDuplicidade(lancamentoIds, mesReferencia, confirmarDuplicado) {
   if (confirmarDuplicado) return null;
@@ -78,7 +79,7 @@ async function verificarDuplicidade(lancamentoIds, mesReferencia, confirmarDupli
   return null;
 }
 
-router.post('/total', async (req, res) => {
+router.post('/total', asyncHandler(async (req, res) => {
   const schema = z.object({
     instanciaId: z.string().min(1),
     mesReferencia: mesSchema,
@@ -117,9 +118,9 @@ router.post('/total', async (req, res) => {
     )
   );
   return res.status(201).json({ pagamentos });
-});
+}));
 
-router.post('/selecionados', async (req, res) => {
+router.post('/selecionados', asyncHandler(async (req, res) => {
   const schema = z.object({
     instanciaId: z.string().min(1),
     mesReferencia: mesSchema,
@@ -162,9 +163,9 @@ router.post('/selecionados', async (req, res) => {
     )
   );
   return res.status(201).json({ pagamentos });
-});
+}));
 
-router.post('/outro-valor', async (req, res) => {
+router.post('/outro-valor', asyncHandler(async (req, res) => {
   const schema = z.object({
     instanciaId: z.string().min(1),
     mesReferencia: mesSchema,
@@ -281,6 +282,6 @@ router.post('/outro-valor', async (req, res) => {
   });
 
   return res.status(201).json(resultado);
-});
+}));
 
 module.exports = router;

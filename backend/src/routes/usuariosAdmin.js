@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs');
 const { z } = require('zod');
 const prisma = require('../lib/prisma');
 const { autenticar, exigirRole } = require('../middleware/auth');
+const { asyncHandler } = require('../utils/asyncHandler');
 
 const router = express.Router();
 router.use(autenticar, exigirRole('ADMIN'));
@@ -18,17 +19,17 @@ function serializar(usuario) {
   };
 }
 
-router.get('/', async (req, res) => {
+router.get('/', asyncHandler(async (req, res) => {
   const usuarios = await prisma.usuario.findMany({
     where: { role: 'USER', deletadoEm: null },
     orderBy: { criadoEm: 'desc' },
   });
   return res.json({ usuarios: usuarios.map(serializar) });
-});
+}));
 
 const statusSchema = z.object({ status: z.enum(['ATIVO', 'INATIVO']) });
 
-router.patch('/:id/status', async (req, res) => {
+router.patch('/:id/status', asyncHandler(async (req, res) => {
   const parsed = statusSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ erro: parsed.error.issues[0].message });
 
@@ -42,11 +43,11 @@ router.patch('/:id/status', async (req, res) => {
     data: { status: parsed.data.status },
   });
   return res.json({ usuario: serializar(atualizado) });
-});
+}));
 
 const senhaSchema = z.object({ novaSenha: z.string().min(8, 'A senha precisa ter pelo menos 8 caracteres.') });
 
-router.patch('/:id/senha', async (req, res) => {
+router.patch('/:id/senha', asyncHandler(async (req, res) => {
   const parsed = senhaSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ erro: parsed.error.issues[0].message });
 
@@ -61,9 +62,9 @@ router.patch('/:id/senha', async (req, res) => {
     data: { senha: senhaHash, deveTrocarSenha: true },
   });
   return res.json({ ok: true });
-});
+}));
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', asyncHandler(async (req, res) => {
   const usuario = await prisma.usuario.findFirst({
     where: { id: req.params.id, role: 'USER', deletadoEm: null },
   });
@@ -75,6 +76,6 @@ router.delete('/:id', async (req, res) => {
     data: { deletadoEm: new Date(), status: 'INATIVO' },
   });
   return res.json({ ok: true });
-});
+}));
 
 module.exports = router;

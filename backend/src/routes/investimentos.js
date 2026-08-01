@@ -2,11 +2,12 @@ const express = require('express');
 const { z } = require('zod');
 const prisma = require('../lib/prisma');
 const { autenticar, exigirRole } = require('../middleware/auth');
+const { asyncHandler } = require('../utils/asyncHandler');
 
 const router = express.Router();
 router.use(autenticar, exigirRole('USER'));
 
-router.get('/', async (req, res) => {
+router.get('/', asyncHandler(async (req, res) => {
   const { instanciaId } = req.query;
 
   const instancias = await prisma.instancia.findMany({
@@ -29,7 +30,7 @@ router.get('/', async (req, res) => {
     return res.json({ contas: contas.filter((c) => c.id === instanciaId) });
   }
   return res.json({ contas });
-});
+}));
 
 const fluxoSchema = z.object({
   instanciaId: z.string().min(1),
@@ -38,7 +39,7 @@ const fluxoSchema = z.object({
   observacoes: z.string().trim().optional().nullable(),
 });
 
-router.post('/', async (req, res) => {
+router.post('/', asyncHandler(async (req, res) => {
   const parsed = fluxoSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ erro: parsed.error.issues[0].message });
 
@@ -51,9 +52,9 @@ router.post('/', async (req, res) => {
     data: { ...parsed.data, usuarioId: req.usuario.id, observacoes: parsed.data.observacoes || null },
   });
   return res.status(201).json({ fluxo });
-});
+}));
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', asyncHandler(async (req, res) => {
   const fluxo = await prisma.investimento.findFirst({
     where: { id: req.params.id, usuarioId: req.usuario.id },
   });
@@ -61,6 +62,6 @@ router.delete('/:id', async (req, res) => {
 
   await prisma.investimento.delete({ where: { id: fluxo.id } });
   return res.json({ ok: true });
-});
+}));
 
 module.exports = router;

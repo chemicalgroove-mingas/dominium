@@ -4,6 +4,7 @@ const prisma = require('../lib/prisma');
 const { autenticar, exigirRole } = require('../middleware/auth');
 const { somarMeses, mesAtual, parseMes } = require('../utils/mes');
 const { janelaValida, limitesJanela, projetarLancamentoNaJanela } = require('../utils/projecao');
+const { asyncHandler } = require('../utils/asyncHandler');
 
 const router = express.Router();
 router.use(autenticar, exigirRole('USER'));
@@ -44,7 +45,7 @@ async function serializarComRestantes(lancamento) {
   return { ...lancamento, pagas, restantes, totalRestante: restantes * lancamento.valor };
 }
 
-router.get('/', async (req, res) => {
+router.get('/', asyncHandler(async (req, res) => {
   const { instanciaId, mesReferencia, janela } = req.query;
   if (!instanciaId) return res.status(400).json({ erro: 'Informe instanciaId.' });
 
@@ -69,9 +70,9 @@ router.get('/', async (req, res) => {
   );
 
   return res.json({ lancamentos: comRestantes, totalJanela, janela: jan, mesReferencia: ref });
-});
+}));
 
-router.post('/', async (req, res) => {
+router.post('/', asyncHandler(async (req, res) => {
   const parsed = baseSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ erro: parsed.error.issues[0].message });
 
@@ -106,7 +107,7 @@ router.post('/', async (req, res) => {
     },
   });
   return res.status(201).json({ lancamento: await serializarComRestantes(lancamento) });
-});
+}));
 
 const edicaoSchema = z.object({
   descricao: z.string().trim().min(1).optional(),
@@ -114,7 +115,7 @@ const edicaoSchema = z.object({
   observacoes: z.string().trim().optional().nullable(),
 });
 
-router.put('/:id', async (req, res) => {
+router.put('/:id', asyncHandler(async (req, res) => {
   const parsed = edicaoSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ erro: parsed.error.issues[0].message });
 
@@ -125,9 +126,9 @@ router.put('/:id', async (req, res) => {
 
   const atualizado = await prisma.lancamento.update({ where: { id: lancamento.id }, data: parsed.data });
   return res.json({ lancamento: await serializarComRestantes(atualizado) });
-});
+}));
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', asyncHandler(async (req, res) => {
   const lancamento = await prisma.lancamento.findFirst({
     where: { id: req.params.id, usuarioId: req.usuario.id },
   });
@@ -135,6 +136,6 @@ router.delete('/:id', async (req, res) => {
 
   await prisma.lancamento.delete({ where: { id: lancamento.id } });
   return res.json({ ok: true });
-});
+}));
 
 module.exports = router;

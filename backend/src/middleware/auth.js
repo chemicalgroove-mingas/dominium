@@ -1,7 +1,8 @@
 const jwt = require('jsonwebtoken');
 const prisma = require('../lib/prisma');
+const { asyncHandler } = require('../utils/asyncHandler');
 
-async function autenticar(req, res, next) {
+const autenticar = asyncHandler(async function autenticar(req, res, next) {
   const token = req.cookies?.dominium_token;
 
   if (!token) {
@@ -38,7 +39,7 @@ async function autenticar(req, res, next) {
     deveTrocarSenha: usuario.deveTrocarSenha,
   };
   next();
-}
+});
 
 function exigirRole(role) {
   return (req, res, next) => {
@@ -49,9 +50,16 @@ function exigirRole(role) {
   };
 }
 
+// Sanitiza JWT_EXPIRES_IN: valores mal configurados na env (espaco, aspas
+// coladas etc.) nao podem derrubar o login inteiro — cai no default seguro.
+function expiresInValido() {
+  const valor = (process.env.JWT_EXPIRES_IN || '').trim().replace(/^["']|["']$/g, '');
+  return /^\d+$/.test(valor) || /^\d+[smhdwy]$/.test(valor) ? valor : '7d';
+}
+
 function gerarToken(usuario) {
   return jwt.sign({ id: usuario.id }, process.env.JWT_SECRET, {
-    expiresIn: process.env.JWT_EXPIRES_IN || '7d',
+    expiresIn: expiresInValido(),
   });
 }
 

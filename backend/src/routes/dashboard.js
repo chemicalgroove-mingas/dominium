@@ -3,6 +3,7 @@ const prisma = require('../lib/prisma');
 const { autenticar, exigirRole } = require('../middleware/auth');
 const { somarMeses, mesAtual, compararMeses, listarMeses, diferencaEmMeses } = require('../utils/mes');
 const { JANELAS, janelaValida, limitesJanela, projetarLancamentoNaJanela } = require('../utils/projecao');
+const { asyncHandler } = require('../utils/asyncHandler');
 
 const router = express.Router();
 router.use(autenticar, exigirRole('USER'));
@@ -13,7 +14,7 @@ function totalPorGrupo(lancamentos, grupoPorInstancia, grupo, inicio, fim) {
     .reduce((acc, l) => acc + projetarLancamentoNaJanela(l, inicio, fim).total, 0);
 }
 
-router.get('/', async (req, res) => {
+router.get('/', asyncHandler(async (req, res) => {
   const usuarioId = req.usuario.id;
   const ref = req.query.mesReferencia && /^\d{4}-\d{2}$/.test(req.query.mesReferencia)
     ? String(req.query.mesReferencia)
@@ -139,7 +140,7 @@ router.get('/', async (req, res) => {
     totalInstancias: instancias.length,
     totalLancamentos: lancamentos.length,
   });
-});
+}));
 
 function mesDoFluxo(data) {
   const d = new Date(data);

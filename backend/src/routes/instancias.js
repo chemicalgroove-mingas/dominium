@@ -2,6 +2,7 @@ const express = require('express');
 const { z } = require('zod');
 const prisma = require('../lib/prisma');
 const { autenticar, exigirRole } = require('../middleware/auth');
+const { asyncHandler } = require('../utils/asyncHandler');
 
 const router = express.Router();
 router.use(autenticar, exigirRole('USER'));
@@ -14,7 +15,7 @@ const instanciaSchema = z.object({
   cor: z.string().trim().min(1),
 });
 
-router.get('/', async (req, res) => {
+router.get('/', asyncHandler(async (req, res) => {
   const { grupo, ativas } = req.query;
   const instancias = await prisma.instancia.findMany({
     where: {
@@ -25,9 +26,9 @@ router.get('/', async (req, res) => {
     orderBy: { criadoEm: 'asc' },
   });
   return res.json({ instancias });
-});
+}));
 
-router.post('/', async (req, res) => {
+router.post('/', asyncHandler(async (req, res) => {
   const parsed = instanciaSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ erro: parsed.error.issues[0].message });
 
@@ -35,9 +36,9 @@ router.post('/', async (req, res) => {
     data: { ...parsed.data, usuarioId: req.usuario.id },
   });
   return res.status(201).json({ instancia });
-});
+}));
 
-router.put('/:id', async (req, res) => {
+router.put('/:id', asyncHandler(async (req, res) => {
   const parsed = instanciaSchema.partial().safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ erro: parsed.error.issues[0].message });
 
@@ -48,9 +49,9 @@ router.put('/:id', async (req, res) => {
 
   const atualizada = await prisma.instancia.update({ where: { id: instancia.id }, data: parsed.data });
   return res.json({ instancia: atualizada });
-});
+}));
 
-router.patch('/:id/ativa', async (req, res) => {
+router.patch('/:id/ativa', asyncHandler(async (req, res) => {
   const instancia = await prisma.instancia.findFirst({
     where: { id: req.params.id, usuarioId: req.usuario.id },
   });
@@ -61,9 +62,9 @@ router.patch('/:id/ativa', async (req, res) => {
     data: { ativa: !instancia.ativa },
   });
   return res.json({ instancia: atualizada });
-});
+}));
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', asyncHandler(async (req, res) => {
   const instancia = await prisma.instancia.findFirst({
     where: { id: req.params.id, usuarioId: req.usuario.id },
   });
@@ -72,6 +73,6 @@ router.delete('/:id', async (req, res) => {
   // Cascade (lancamentos, pagamentos, investimentos) garantido pelo schema (onDelete: Cascade).
   await prisma.instancia.delete({ where: { id: instancia.id } });
   return res.json({ ok: true });
-});
+}));
 
 module.exports = router;

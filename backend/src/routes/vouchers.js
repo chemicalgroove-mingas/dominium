@@ -3,6 +3,7 @@ const { z } = require('zod');
 const prisma = require('../lib/prisma');
 const { autenticar, exigirRole } = require('../middleware/auth');
 const { gerarCodigoVoucher } = require('../utils/voucher');
+const { asyncHandler } = require('../utils/asyncHandler');
 
 const router = express.Router();
 router.use(autenticar, exigirRole('ADMIN'));
@@ -16,7 +17,7 @@ function serializar(voucher) {
   return { ...voucher, expirado };
 }
 
-router.get('/', async (req, res) => {
+router.get('/', asyncHandler(async (req, res) => {
   const { status } = req.query;
   const where = status && FILTROS_STATUS[status] ? { status: FILTROS_STATUS[status] } : {};
 
@@ -27,7 +28,7 @@ router.get('/', async (req, res) => {
   });
 
   return res.json({ vouchers: vouchers.map(serializar) });
-});
+}));
 
 const gerarSchema = z.object({
   expiraEm: z
@@ -58,13 +59,13 @@ async function criarVoucherUnico({ expiraEm, observacao, criadoPor, prefixo, com
   throw new Error('Nao foi possivel gerar um codigo de voucher unico.');
 }
 
-router.post('/', async (req, res) => {
+router.post('/', asyncHandler(async (req, res) => {
   const parsed = gerarSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ erro: parsed.error.issues[0].message });
 
   const voucher = await criarVoucherUnico({ ...parsed.data, criadoPor: req.usuario.login });
   return res.status(201).json({ voucher: serializar(voucher) });
-});
+}));
 
 const loteSchema = z.object({
   quantidade: z.number().int().min(1, 'Informe ao menos 1.').max(1000, 'Maximo de 1000 por lote.'),
@@ -78,7 +79,7 @@ const loteSchema = z.object({
     .optional(),
 });
 
-router.post('/lote', async (req, res) => {
+router.post('/lote', asyncHandler(async (req, res) => {
   const parsed = loteSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ erro: parsed.error.issues[0].message });
 
@@ -97,9 +98,9 @@ router.post('/lote', async (req, res) => {
   }
 
   return res.status(201).json({ vouchers: criados.map(serializar), quantidade: criados.length });
-});
+}));
 
-router.patch('/:id/revogar', async (req, res) => {
+router.patch('/:id/revogar', asyncHandler(async (req, res) => {
   const voucher = await prisma.voucher.findUnique({ where: { id: req.params.id } });
   if (!voucher) return res.status(404).json({ erro: 'Voucher nao encontrado.' });
   if (voucher.status !== 'ATIVO') {
@@ -111,9 +112,9 @@ router.patch('/:id/revogar', async (req, res) => {
     data: { status: 'REVOGADO' },
   });
   return res.json({ voucher: serializar(atualizado) });
-});
+}));
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', asyncHandler(async (req, res) => {
   const voucher = await prisma.voucher.findUnique({ where: { id: req.params.id } });
   if (!voucher) return res.status(404).json({ erro: 'Voucher nao encontrado.' });
   if (voucher.status === 'USADO') {
@@ -122,6 +123,6 @@ router.delete('/:id', async (req, res) => {
 
   await prisma.voucher.delete({ where: { id: voucher.id } });
   return res.json({ ok: true });
-});
+}));
 
 module.exports = router;
