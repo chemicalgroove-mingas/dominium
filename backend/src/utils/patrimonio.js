@@ -1,5 +1,5 @@
 const { mesAtual, compararMeses } = require('./mes');
-const { projetarLancamentoNaJanela } = require('./projecao');
+const { projetarLancamentoNaJanela, valoresPorParcela } = require('./projecao');
 
 // Valor ja acumulado de um aporte (lancamento de uma instancia de investimento):
 // soma o que decorreu desde o mes de inicio do aporte ate o mes atual. Fixo
@@ -36,4 +36,33 @@ function metaBatida(lancamento) {
   return false;
 }
 
-module.exports = { valorAcumuladoAporte, parcelasDecorridas, metaBatida };
+// Valor efetivo da proxima parcela ainda nao decorrida, ja considerando o
+// abatimento/rendimento aplicado (cascata da ultima parcela pra frente). Sem
+// isso, a tela mostraria sempre o valor nominal original mesmo depois de
+// "Lancar Valor Extra"/"Atualizar Valor" reduzirem as parcelas finais.
+function proximaParcelaValor(lancamento) {
+  if (lancamento.tipo !== 'temporario' || !lancamento.parcelas) return null;
+  const decorridos = parcelasDecorridas(lancamento);
+  const todas = valoresPorParcela(lancamento);
+  if (decorridos >= todas.length) return null;
+  return todas[decorridos].valor;
+}
+
+// Quantas das parcelas ainda nao decorridas realmente tem valor a pagar — o
+// abatimento pode ja ter zerado uma ou mais parcelas finais, entao "restantes"
+// deixa de ser so uma contagem de meses no calendario.
+function parcelasRestantesComValor(lancamento) {
+  if (lancamento.tipo !== 'temporario' || !lancamento.parcelas) return null;
+  const decorridos = parcelasDecorridas(lancamento);
+  return valoresPorParcela(lancamento)
+    .slice(decorridos)
+    .filter((p) => p.valor > EPS).length;
+}
+
+module.exports = {
+  valorAcumuladoAporte,
+  parcelasDecorridas,
+  metaBatida,
+  proximaParcelaValor,
+  parcelasRestantesComValor,
+};

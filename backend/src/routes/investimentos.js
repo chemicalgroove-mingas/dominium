@@ -4,7 +4,13 @@ const prisma = require('../lib/prisma');
 const { autenticar, exigirRole } = require('../middleware/auth');
 const { asyncHandler } = require('../utils/asyncHandler');
 const { mesAtual, somarMeses, parseMes } = require('../utils/mes');
-const { valorAcumuladoAporte, parcelasDecorridas, metaBatida } = require('../utils/patrimonio');
+const {
+  valorAcumuladoAporte,
+  parcelasDecorridas,
+  metaBatida,
+  proximaParcelaValor,
+  parcelasRestantesComValor,
+} = require('../utils/patrimonio');
 
 const router = express.Router();
 router.use(autenticar, exigirRole('USER'));
@@ -30,6 +36,8 @@ async function montarConta(instancia) {
     ...a,
     acumulado: valorAcumuladoAporte(a),
     parcelasDecorridas: parcelasDecorridas(a),
+    parcelasRestantesComValor: parcelasRestantesComValor(a),
+    proximaParcela: proximaParcelaValor(a),
     metaBatida: metaBatida(a),
   }));
 

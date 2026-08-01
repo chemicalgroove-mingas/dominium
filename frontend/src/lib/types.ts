@@ -122,6 +122,8 @@ export type Resgate = {
 export type Aporte = Lancamento & {
   acumulado: number;
   parcelasDecorridas: number;
+  parcelasRestantesComValor: number | null;
+  proximaParcela: number | null;
   metaBatida: boolean;
 };
 

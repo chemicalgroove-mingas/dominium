@@ -82,4 +82,11 @@ function projetarLancamentos(lancamentos, mesReferencia, janela) {
   return lancamentos.reduce((acc, l) => acc + projetarLancamentoNaJanela(l, inicio, fim).total, 0);
 }
 
-module.exports = { JANELAS, janelaValida, limitesJanela, projetarLancamentoNaJanela, projetarLancamentos };
+module.exports = {
+  JANELAS,
+  janelaValida,
+  limitesJanela,
+  projetarLancamentoNaJanela,
+  projetarLancamentos,
+  valoresPorParcela,
+};

@@ -587,8 +587,12 @@ function ListaValores({
                 <>
                   <p className="tabular text-xs text-cream-100/60">
                     {formatarMoeda(a.valor)}/parcela
-                    {a.valorUltimaParcela != null && ` (última ${formatarMoeda(a.valorUltimaParcela)})`} ·{" "}
-                    {Math.max((a.parcelas || 0) - a.parcelasDecorridas, 0)}/{a.parcelas} restantes · juntado{" "}
+                    {a.proximaParcela != null &&
+                      Math.abs(a.proximaParcela - a.valor) > 0.005 &&
+                      ` (próxima ${formatarMoeda(a.proximaParcela)})`}{" "}
+                    ·{" "}
+                    {a.parcelasRestantesComValor ?? Math.max((a.parcelas || 0) - a.parcelasDecorridas, 0)}/
+                    {a.parcelas} restantes · juntado{" "}
                     {formatarMoeda(a.acumulado)}
                     {a.valorMeta != null && ` de ${formatarMoeda(a.valorMeta)}`}
                   </p>
