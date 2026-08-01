@@ -250,7 +250,7 @@ export default function InvestimentosPage() {
                     className="shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium"
                     style={{ borderColor: conta.cor, color: conta.cor }}
                   >
-                    Lançar valor
+                    {conta.aportes.some((a) => a.valorMeta != null) ? "Lançar Valor Extra" : "Lançar valor"}
                   </button>
                 </div>
 
@@ -572,14 +572,20 @@ function ListaValores({
             {a.tipo === "fixo" ? (
               <p className="tabular text-xs text-cream-100/60">{formatarMoeda(a.valor)}/mês · FIXO</p>
             ) : (
-              <p className="tabular text-xs text-cream-100/60">
-                {formatarMoeda(a.valor)}/parcela
-                {a.valorUltimaParcela != null && ` (última ${formatarMoeda(a.valorUltimaParcela)})`} ·{" "}
-                {Math.max((a.parcelas || 0) - a.parcelasDecorridas, 0)}/{a.parcelas} restantes · juntado{" "}
-                {formatarMoeda(a.acumulado)}
-                {a.valorMeta != null && ` de ${formatarMoeda(a.valorMeta)}`}
-                {a.valorAbatido > 0 && ` · ${formatarMoeda(a.valorAbatido)} abatido antecipadamente`}
-              </p>
+              <>
+                <p className="tabular text-xs text-cream-100/60">
+                  {formatarMoeda(a.valor)}/parcela
+                  {a.valorUltimaParcela != null && ` (última ${formatarMoeda(a.valorUltimaParcela)})`} ·{" "}
+                  {Math.max((a.parcelas || 0) - a.parcelasDecorridas, 0)}/{a.parcelas} restantes · juntado{" "}
+                  {formatarMoeda(a.acumulado)}
+                  {a.valorMeta != null && ` de ${formatarMoeda(a.valorMeta)}`}
+                </p>
+                {a.valorAbatido > 0 && (
+                  <p className="tabular text-xs font-medium text-success">
+                    +{formatarMoeda(a.valorAbatido)} em valor extra já lançado
+                  </p>
+                )}
+              </>
             )}
           </div>
           <button
@@ -1184,7 +1190,7 @@ function ModalLancarValor({
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center">
       <form onSubmit={salvar} className="card-dominium w-full max-w-sm rounded-b-none p-5 sm:rounded-b-2xl">
-        <h2 className="mb-1 font-brand text-lg text-cream-100">Lançar valor</h2>
+        <h2 className="mb-1 font-brand text-lg text-cream-100">Lançar Valor Extra</h2>
         <p className="mb-4 text-xs text-cream-100/60">
           {conta.nome} · faltam {formatarMoeda(faltam)} para a meta
         </p>
@@ -1202,7 +1208,7 @@ function ModalLancarValor({
             Cancelar
           </button>
           <button type="submit" className="btn-gold flex-1" disabled={salvando}>
-            {salvando ? "Salvando..." : "Lançar valor"}
+            {salvando ? "Salvando..." : "Lançar Valor Extra"}
           </button>
         </div>
       </form>
