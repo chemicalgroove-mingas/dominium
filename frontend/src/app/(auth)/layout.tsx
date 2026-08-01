@@ -7,8 +7,8 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
         <Image
           src="/icons/icon-192.png"
           alt="DOMINIUM"
-          width={144}
-          height={144}
+          width={173}
+          height={173}
           className="rounded-full"
           priority
           unoptimized
