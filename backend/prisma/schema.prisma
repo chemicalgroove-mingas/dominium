@@ -78,8 +78,13 @@ model Lancamento {
   valorMeta          Float?
   valorUltimaParcela Float?
   // total ja abatido antecipadamente das parcelas finais (da ultima pra primeira),
-  // via "Lancar valor" num projeto de reserva com meta. So usado quando valorMeta != null.
+  // via "Lancar Valor Extra"/"Atualizar Valor" num projeto de reserva com meta.
+  // Agregado = valorRendimento + soma dos ValorExtra vinculados. So usado quando
+  // valorMeta != null.
   valorAbatido       Float    @default(0)
+  // total acumulado (pode ser negativo) de rendimento/perda via "Atualizar Valor" —
+  // um unico contador que so soma/subtrai a cada atualizacao, sem itens avulsos.
+  valorRendimento    Float    @default(0)
   // id do Pagamento (nao FK, so bookkeeping) que gerou este lancamento
   // automaticamente (excedente ou pendencia de "outro valor" em Pagamentos).
   criadoPorPagamentoId String?
@@ -87,7 +92,19 @@ model Lancamento {
   observacoes String?
   criadoEm    DateTime  @default(now())
 
-  pagamentos Pagamento[]
+  pagamentos    Pagamento[]
+  valoresExtras ValorExtra[]
+}
+
+// Cada lancamento individual de "Lancar Valor Extra" num projeto de reserva com
+// meta — mantido separado do rendimento pra dar visibilidade item a item.
+model ValorExtra {
+  id           String     @id @default(uuid())
+  lancamentoId String
+  lancamento   Lancamento @relation(fields: [lancamentoId], references: [id], onDelete: Cascade)
+  valor        Float
+  descricao    String?
+  criadoEm     DateTime   @default(now())
 }
 
 // tipo: total | selecionado | parcial | avulso

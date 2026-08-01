@@ -14,7 +14,11 @@ const EPS = 0.005;
 
 async function montarConta(instancia) {
   const [aportes, resgates] = await Promise.all([
-    prisma.lancamento.findMany({ where: { instanciaId: instancia.id }, orderBy: { criadoEm: 'desc' } }),
+    prisma.lancamento.findMany({
+      where: { instanciaId: instancia.id },
+      orderBy: { criadoEm: 'desc' },
+      include: { valoresExtras: { orderBy: { criadoEm: 'desc' } } },
+    }),
     prisma.investimento.findMany({ where: { instanciaId: instancia.id }, orderBy: { criadoEm: 'desc' } }),
   ]);
 
@@ -159,11 +163,13 @@ router.delete('/aporte/:id', asyncHandler(async (req, res) => {
 
 const abaterSchema = z.object({
   valor: z.number().positive('Informe um valor maior que zero.'),
+  descricao: z.string().trim().optional(),
 });
 
-// "Lancar valor" num projeto com meta: em vez de criar um lancamento novo, o
-// valor abate diretamente das parcelas finais da meta (da ultima pra primeira),
-// acelerando o alcance do objetivo.
+// "Lancar Valor Extra" num projeto com meta: em vez de criar um lancamento com
+// cronograma proprio, o valor abate diretamente das parcelas finais da meta (da
+// ultima pra primeira), acelerando o alcance do objetivo. Cada lancamento fica
+// registrado individualmente (ValorExtra) para dar visibilidade do esforco.
 router.post('/aporte/:id/abater', asyncHandler(async (req, res) => {
   const parsed = abaterSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ erro: parsed.error.issues[0].message });
@@ -174,12 +180,45 @@ router.post('/aporte/:id/abater', asyncHandler(async (req, res) => {
     return res.status(400).json({ erro: 'Este aporte nao tem meta definida para abater valor.' });
   }
 
-  const atualizado = await prisma.lancamento.update({
-    where: { id: aporte.id },
-    data: { valorAbatido: { increment: parsed.data.valor } },
-  });
+  const [, atualizado] = await prisma.$transaction([
+    prisma.valorExtra.create({
+      data: { lancamentoId: aporte.id, valor: parsed.data.valor, descricao: parsed.data.descricao || null },
+    }),
+    prisma.lancamento.update({
+      where: { id: aporte.id },
+      data: { valorAbatido: { increment: parsed.data.valor } },
+      include: { valoresExtras: { orderBy: { criadoEm: 'desc' } } },
+    }),
+  ]);
 
   return res.status(201).json({
+    aporte: {
+      ...atualizado,
+      acumulado: valorAcumuladoAporte(atualizado),
+      parcelasDecorridas: parcelasDecorridas(atualizado),
+      metaBatida: metaBatida(atualizado),
+    },
+  });
+}));
+
+// Reverte um valor extra individual: apaga o registro e desfaz o abatimento
+// correspondente (soma de volta nas parcelas finais).
+router.delete('/valor-extra/:id', asyncHandler(async (req, res) => {
+  const extra = await prisma.valorExtra.findFirst({
+    where: { id: req.params.id, lancamento: { usuarioId: req.usuario.id } },
+  });
+  if (!extra) return res.status(404).json({ erro: 'Valor extra nao encontrado.' });
+
+  const [, atualizado] = await prisma.$transaction([
+    prisma.valorExtra.delete({ where: { id: extra.id } }),
+    prisma.lancamento.update({
+      where: { id: extra.lancamentoId },
+      data: { valorAbatido: { decrement: extra.valor } },
+      include: { valoresExtras: { orderBy: { criadoEm: 'desc' } } },
+    }),
+  ]);
+
+  return res.json({
     aporte: {
       ...atualizado,
       acumulado: valorAcumuladoAporte(atualizado),
@@ -403,9 +442,16 @@ router.post('/:id/atualizar-valor', asyncHandler(async (req, res) => {
     // Rendimento ou perda abate/acrescenta as parcelas finais da meta (igual
     // "Lancar Valor Extra", nos dois sentidos) — nao cria lancamento avulso a
     // parte: positivo diminui as ultimas parcelas, negativo aumenta a ultima.
+    // valorRendimento e um contador acumulado a parte (nao um ValorExtra
+    // individual): atualizacoes repetidas so somam/subtraem nele, sem poluir
+    // a lista de valores extras lancados manualmente.
     const atualizado = await prisma.lancamento.update({
       where: { id: aporteMeta.id },
-      data: { valorAbatido: { increment: diferenca } },
+      data: {
+        valorAbatido: { increment: diferenca },
+        valorRendimento: { increment: diferenca },
+      },
+      include: { valoresExtras: { orderBy: { criadoEm: 'desc' } } },
     });
     return res.status(201).json({
       ajuste: {

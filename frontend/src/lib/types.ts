@@ -47,6 +47,14 @@ export type Instancia = {
 
 export type TipoLancamento = "fixo" | "temporario";
 
+export type ValorExtra = {
+  id: string;
+  lancamentoId: string;
+  valor: number;
+  descricao: string | null;
+  criadoEm: string;
+};
+
 export type Lancamento = {
   id: string;
   usuarioId: string;
@@ -60,6 +68,8 @@ export type Lancamento = {
   valorMeta: number | null;
   valorUltimaParcela: number | null;
   valorAbatido: number;
+  valorRendimento: number;
+  valoresExtras?: ValorExtra[];
   ativo: boolean;
   observacoes: string | null;
   criadoEm: string;

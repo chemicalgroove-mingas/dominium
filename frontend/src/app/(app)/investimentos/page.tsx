@@ -163,6 +163,11 @@ export default function InvestimentosPage() {
     await carregar();
   }
 
+  async function excluirValorExtra(id: string) {
+    await api.delete(`/api/investimentos/valor-extra/${id}`);
+    await carregar();
+  }
+
   async function concluirProjeto(conta: ContaInvestimento) {
     await api.patch(`/api/instancias/${conta.id}/ativa`);
     setModalOpcoes(null);
@@ -259,6 +264,7 @@ export default function InvestimentosPage() {
                   onEditarValor={(a) => abrirEdicaoAporte(conta, a)}
                   onExcluirValor={excluirAporte}
                   onExcluirResgate={excluirResgate}
+                  onExcluirValorExtra={excluirValorExtra}
                 />
 
                 <div className="mt-3 flex flex-wrap gap-2 border-t border-navy-700 pt-3">
@@ -423,6 +429,7 @@ export default function InvestimentosPage() {
                   onEditarValor={(a) => abrirEdicaoAporte(contaFoco, a)}
                   onExcluirValor={excluirAporte}
                   onExcluirResgate={excluirResgate}
+                  onExcluirValorExtra={excluirValorExtra}
                 />
               </div>
             </div>
@@ -551,11 +558,13 @@ function ListaValores({
   onEditarValor,
   onExcluirValor,
   onExcluirResgate,
+  onExcluirValorExtra,
 }: {
   conta: ContaInvestimento;
   onEditarValor: (a: Aporte) => void;
   onExcluirValor: (id: string) => void;
   onExcluirResgate: (id: string) => void;
+  onExcluirValorExtra: (id: string) => void;
 }) {
   if (conta.aportes.length === 0 && conta.resgates.length === 0) {
     return <p className="py-3 text-center text-sm text-cream-100/50">Sem valores lançados.</p>;
@@ -563,52 +572,76 @@ function ListaValores({
 
   return (
     <div className="flex flex-col gap-2">
-      {conta.aportes.map((a) => (
-        <div key={a.id} className="flex items-center gap-3 border-t border-navy-700 pt-2 first:border-t-0 first:pt-0">
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm text-cream-100">
-              {a.descricao} {a.metaBatida && <Check size={12} className="ml-1 inline text-success" />}
-            </p>
-            {a.tipo === "fixo" ? (
-              <p className="tabular text-xs text-cream-100/60">{formatarMoeda(a.valor)}/mês · FIXO</p>
-            ) : (
-              <>
-                <p className="tabular text-xs text-cream-100/60">
-                  {formatarMoeda(a.valor)}/parcela
-                  {a.valorUltimaParcela != null && ` (última ${formatarMoeda(a.valorUltimaParcela)})`} ·{" "}
-                  {Math.max((a.parcelas || 0) - a.parcelasDecorridas, 0)}/{a.parcelas} restantes · juntado{" "}
-                  {formatarMoeda(a.acumulado)}
-                  {a.valorMeta != null && ` de ${formatarMoeda(a.valorMeta)}`}
-                </p>
-                {a.valorAbatido > 0 && (
-                  <p className="tabular text-xs font-medium text-success">
-                    +{formatarMoeda(a.valorAbatido)} em valor extra já lançado
+      {conta.aportes.map((a) => {
+        const extras = a.valoresExtras || [];
+        const somaExtras = extras.reduce((acc, v) => acc + v.valor, 0);
+        return (
+          <div key={a.id} className="flex items-center gap-3 border-t border-navy-700 pt-2 first:border-t-0 first:pt-0">
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm text-cream-100">
+                {a.descricao} {a.metaBatida && <Check size={12} className="ml-1 inline text-success" />}
+              </p>
+              {a.tipo === "fixo" ? (
+                <p className="tabular text-xs text-cream-100/60">{formatarMoeda(a.valor)}/mês · FIXO</p>
+              ) : (
+                <>
+                  <p className="tabular text-xs text-cream-100/60">
+                    {formatarMoeda(a.valor)}/parcela
+                    {a.valorUltimaParcela != null && ` (última ${formatarMoeda(a.valorUltimaParcela)})`} ·{" "}
+                    {Math.max((a.parcelas || 0) - a.parcelasDecorridas, 0)}/{a.parcelas} restantes · juntado{" "}
+                    {formatarMoeda(a.acumulado)}
+                    {a.valorMeta != null && ` de ${formatarMoeda(a.valorMeta)}`}
                   </p>
-                )}
-                {a.valorAbatido < 0 && (
-                  <p className="tabular text-xs font-medium text-danger">
-                    -{formatarMoeda(Math.abs(a.valorAbatido))} a recuperar nas próximas parcelas
-                  </p>
-                )}
-              </>
-            )}
+                  {a.valorRendimento !== 0 && (
+                    <p className={`tabular text-xs font-medium ${a.valorRendimento > 0 ? "text-success" : "text-danger"}`}>
+                      Rendimento acumulado: {a.valorRendimento > 0 ? "+" : "-"}
+                      {formatarMoeda(Math.abs(a.valorRendimento))}
+                    </p>
+                  )}
+                  {extras.length > 0 && (
+                    <div className="mt-1 rounded-lg bg-navy-800/60 p-2">
+                      <p className="tabular mb-1 text-xs font-medium text-gold-300">
+                        Valores extras lançados · total {formatarMoeda(somaExtras)}
+                      </p>
+                      <div className="flex flex-col gap-1">
+                        {extras.map((v) => (
+                          <div key={v.id} className="flex items-center gap-2">
+                            <span className="tabular flex-1 text-xs text-cream-100/70">
+                              {formatarMoeda(v.valor)} ·{" "}
+                              {new Date(v.criadoEm).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}
+                            </span>
+                            <button
+                              onClick={() => onExcluirValorExtra(v.id)}
+                              className="p-1 text-cream-100/40 hover:text-danger"
+                              aria-label="Reverter valor extra"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+            <button
+              onClick={() => onEditarValor(a)}
+              className="p-2 text-cream-100/40 hover:text-gold-300"
+              aria-label="Editar valor"
+            >
+              <Pencil size={15} />
+            </button>
+            <button
+              onClick={() => onExcluirValor(a.id)}
+              className="p-2 text-cream-100/40 hover:text-danger"
+              aria-label="Excluir valor"
+            >
+              <Trash2 size={15} />
+            </button>
           </div>
-          <button
-            onClick={() => onEditarValor(a)}
-            className="p-2 text-cream-100/40 hover:text-gold-300"
-            aria-label="Editar valor"
-          >
-            <Pencil size={15} />
-          </button>
-          <button
-            onClick={() => onExcluirValor(a.id)}
-            className="p-2 text-cream-100/40 hover:text-danger"
-            aria-label="Excluir valor"
-          >
-            <Trash2 size={15} />
-          </button>
-        </div>
-      ))}
+        );
+      })}
       {conta.resgates.map((r) => (
         <div key={r.id} className="flex items-center gap-3 border-t border-navy-700 pt-2 first:border-t-0 first:pt-0">
           <div className="min-w-0 flex-1">
