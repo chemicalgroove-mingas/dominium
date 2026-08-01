@@ -262,7 +262,7 @@ export default function InvestimentosPage() {
                       const metaValor = conta.aportes.find((a) => a.valorMeta != null)?.valorMeta;
                       return (
                         metaValor != null && (
-                          <p className="tabular text-xs text-cream-100/50">Meta: {formatarMoeda(metaValor)}</p>
+                          <p className="tabular text-sm text-cream-100/50">Meta: {formatarMoeda(metaValor)}</p>
                         )
                       );
                     })()}
@@ -618,7 +618,6 @@ function ListaValores({
                   <div className="tabular text-xs text-cream-100/60">
                     <p>Valor Parcelas: {formatarMoeda(a.valor)}</p>
                     {a.ultimaParcela != null && <p>Última Parcela: {formatarMoeda(a.ultimaParcela)}</p>}
-                    {a.valorMeta != null && <p>Valor da Meta: {formatarMoeda(a.valorMeta)}</p>}
                   </div>
                   {a.valorRendimento !== 0 && (
                     <p className={`tabular text-xs font-medium ${a.valorRendimento > 0 ? "text-success" : "text-danger"}`}>
