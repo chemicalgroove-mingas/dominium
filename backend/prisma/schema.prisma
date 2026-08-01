@@ -1,12 +1,13 @@
-// Prototipo local: SQLite. Ao migrar para Supabase, trocar provider para "postgresql"
-// e DATABASE_URL para a connection string do pooler (ver README.md).
+// Producao/Supabase: Postgres. DATABASE_URL = pooler (runtime), DIRECT_URL = conexao
+// direta (usada so pelo Prisma Migrate para rodar DDL).
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 // role: USER | ADMIN — status: ATIVO | INATIVO
