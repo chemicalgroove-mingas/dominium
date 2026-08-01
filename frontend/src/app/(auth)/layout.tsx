@@ -13,7 +13,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
           priority
           unoptimized
         />
-        <p className="text-sm tracking-[0.15em] text-gold-500 uppercase">Personal Finance</p>
+        <p className="font-brand text-base tracking-[0.15em] text-gold-500 uppercase">Personal Finance</p>
         <p className="text-xs tracking-[0.2em] text-gold-500 uppercase">Controle • Planeje • Conquiste</p>
       </div>
       <div className="w-full max-w-sm">{children}</div>

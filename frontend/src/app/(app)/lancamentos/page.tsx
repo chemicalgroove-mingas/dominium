@@ -10,7 +10,7 @@ import { ResumoDashboard } from "@/components/dominium/ResumoDashboard";
 import { CampoMoeda } from "@/components/dominium/CampoMoeda";
 import { SeletorMesReferencia } from "@/components/dominium/SeletorMesReferencia";
 import { formatarMoeda } from "@/lib/format";
-import { diferencaEmMeses, formatarMesLabel } from "@/lib/mes";
+import { diferencaEmMeses, formatarMesLabel, somarMeses } from "@/lib/mes";
 import { centavosParaNumero, numeroParaCentavos } from "@/lib/moeda";
 import { PALETA_INSTANCIA, COR_SUGERIDA_POR_GRUPO } from "@/lib/cores";
 import type { DashboardData, Grupo, Instancia, Lancamento, TipoLancamento } from "@/lib/types";
@@ -32,6 +32,12 @@ const LABEL_LANCAR: Record<Grupo, string> = {
   investimento: "Lançar",
 };
 
+const LABEL_GRUPO_BOTAO: Record<Grupo, string> = {
+  gasto: "Gastos",
+  receita: "Receitas",
+  investimento: "Investimentos",
+};
+
 export default function LancamentosPage() {
   const { instancias, recarregar } = useInstancias();
   const { janela, mesReferencia } = useRecorte();
@@ -39,13 +45,14 @@ export default function LancamentosPage() {
   const [grupo, setGrupo] = useState<Grupo>("gasto");
   const [estado, setEstado] = useState<"geral" | "foco">("geral");
   const [instanciaFoco, setInstanciaFoco] = useState<Instancia | null>(null);
+  const [lancamentoEditando, setLancamentoEditando] = useState<Lancamento | null>(null);
   const [novaInstancia, setNovaInstancia] = useState<{ nome: string; cor: string } | null>(null);
+  const [instanciaEditando, setInstanciaEditando] = useState<{ id: string; nome: string; cor: string } | null>(null);
   const [instanciaParaExcluir, setInstanciaParaExcluir] = useState<Instancia | null>(null);
 
   const [form, setForm] = useState(FORM_VAZIO);
   const [erroForm, setErroForm] = useState("");
   const [salvando, setSalvando] = useState(false);
-  const [editando, setEditando] = useState<{ id: string; valorCentavos: number } | null>(null);
 
   const [gavetas, setGavetas] = useState<Record<string, DadosGaveta>>({});
   const [resumo, setResumo] = useState<DashboardData | null>(null);
@@ -91,7 +98,26 @@ export default function LancamentosPage() {
 
   function abrirFoco(instancia: Instancia) {
     setInstanciaFoco(instancia);
+    setLancamentoEditando(null);
     setForm({ ...FORM_VAZIO, mesInicio: mesReferencia, mesFim: mesReferencia });
+    setErroForm("");
+    setEstado("foco");
+  }
+
+  function abrirEdicaoLancamento(instancia: Instancia, lancamento: Lancamento) {
+    setInstanciaFoco(instancia);
+    setLancamentoEditando(lancamento);
+    setForm({
+      descricao: lancamento.descricao,
+      valorCentavos: numeroParaCentavos(lancamento.valor),
+      tipo: lancamento.tipo,
+      mesInicio: lancamento.mesInicio,
+      mesFim:
+        lancamento.tipo === "temporario"
+          ? lancamento.mesFim || somarMeses(lancamento.mesInicio, (lancamento.parcelas || 1) - 1)
+          : "",
+      observacoes: lancamento.observacoes || "",
+    });
     setErroForm("");
     setEstado("foco");
   }
@@ -104,6 +130,7 @@ export default function LancamentosPage() {
   function voltarParaGeral() {
     setEstado("geral");
     setInstanciaFoco(null);
+    setLancamentoEditando(null);
     setErroForm("");
   }
 
@@ -116,6 +143,17 @@ export default function LancamentosPage() {
       cor: novaInstancia.cor,
     });
     setNovaInstancia(null);
+    await recarregar();
+  }
+
+  async function salvarEdicaoInstancia(e: React.FormEvent) {
+    e.preventDefault();
+    if (!instanciaEditando) return;
+    await api.put(`/api/instancias/${instanciaEditando.id}`, {
+      nome: instanciaEditando.nome,
+      cor: instanciaEditando.cor,
+    });
+    setInstanciaEditando(null);
     await recarregar();
   }
 
@@ -134,17 +172,23 @@ export default function LancamentosPage() {
       return;
     }
 
+    const payload = {
+      instanciaId: instanciaFoco.id,
+      descricao: form.descricao,
+      valor: valorNumerico,
+      tipo: form.tipo,
+      parcelas: form.tipo === "temporario" ? parcelasCalculadas : null,
+      mesInicio: form.mesInicio,
+      observacoes: form.observacoes || null,
+    };
+
     setSalvando(true);
     try {
-      await api.post("/api/lancamentos", {
-        instanciaId: instanciaFoco.id,
-        descricao: form.descricao,
-        valor: valorNumerico,
-        tipo: form.tipo,
-        parcelas: form.tipo === "temporario" ? parcelasCalculadas : null,
-        mesInicio: form.mesInicio,
-        observacoes: form.observacoes || null,
-      });
+      if (lancamentoEditando) {
+        await api.put(`/api/lancamentos/${lancamentoEditando.id}/completo`, payload);
+      } else {
+        await api.post("/api/lancamentos", payload);
+      }
       setForm(FORM_VAZIO);
       await Promise.all([carregarTodasGavetas(), carregarResumo()]);
       voltarParaGeral();
@@ -157,15 +201,6 @@ export default function LancamentosPage() {
 
   async function excluirLancamento(id: string) {
     await api.delete(`/api/lancamentos/${id}`);
-    await Promise.all([carregarTodasGavetas(), carregarResumo()]);
-  }
-
-  async function salvarEdicao() {
-    if (!editando) return;
-    const valorNumerico = centavosParaNumero(editando.valorCentavos);
-    if (!valorNumerico || valorNumerico <= 0) return;
-    await api.put(`/api/lancamentos/${editando.id}`, { valor: valorNumerico });
-    setEditando(null);
     await Promise.all([carregarTodasGavetas(), carregarResumo()]);
   }
 
@@ -211,7 +246,7 @@ export default function LancamentosPage() {
               grupo === g ? "border-gold-500 bg-gold-500/10 text-gold-300" : "border-navy-700 text-cream-100/70"
             }`}
           >
-            {g === "gasto" ? "Gasto" : "Receita"}
+            {LABEL_GRUPO_BOTAO[g]}
           </button>
         ))}
       </div>
@@ -223,16 +258,14 @@ export default function LancamentosPage() {
               <GavetaCard
                 key={i.id}
                 instancia={i}
-                grupo={grupo}
                 dados={gavetas[i.id]}
                 mesReferencia={mesReferencia}
                 janela={janela}
                 labelLancar={LABEL_LANCAR[grupo]}
                 onLancar={() => abrirFoco(i)}
+                onEditarInstancia={() => setInstanciaEditando({ id: i.id, nome: i.nome, cor: i.cor })}
                 onExcluirInstancia={() => setInstanciaParaExcluir(i)}
-                editando={editando}
-                setEditando={setEditando}
-                onSalvarEdicao={salvarEdicao}
+                onEditarLancamento={(l) => abrirEdicaoLancamento(i, l)}
                 onExcluirLancamento={excluirLancamento}
               />
             ))}
@@ -355,20 +388,26 @@ export default function LancamentosPage() {
               {erroForm && <p className="text-sm text-danger">{erroForm}</p>}
 
               <button type="submit" className="btn-gold" disabled={salvando}>
-                {salvando ? "Registrando..." : "Registrar lançamento"}
+                {salvando
+                  ? lancamentoEditando
+                    ? "Salvando alteração..."
+                    : "Registrando..."
+                  : lancamentoEditando
+                    ? "Alterar lançamento"
+                    : "Registrar lançamento"}
               </button>
             </form>
 
             <GavetaCard
               instancia={instanciaFoco}
-              grupo={grupo}
               dados={gavetas[instanciaFoco.id]}
               mesReferencia={mesReferencia}
               janela={janela}
+              onEditarInstancia={() =>
+                setInstanciaEditando({ id: instanciaFoco.id, nome: instanciaFoco.nome, cor: instanciaFoco.cor })
+              }
               onExcluirInstancia={() => setInstanciaParaExcluir(instanciaFoco)}
-              editando={editando}
-              setEditando={setEditando}
-              onSalvarEdicao={salvarEdicao}
+              onEditarLancamento={(l) => abrirEdicaoLancamento(instanciaFoco, l)}
               onExcluirLancamento={excluirLancamento}
               sticky
             />
@@ -420,6 +459,50 @@ export default function LancamentosPage() {
         </div>
       )}
 
+      {instanciaEditando && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center">
+          <form onSubmit={salvarEdicaoInstancia} className="card-dominium w-full max-w-sm rounded-b-none p-5 sm:rounded-b-2xl">
+            <h2 className="mb-4 font-brand text-lg text-cream-100">Editar instância</h2>
+            <div className="mb-4">
+              <label className="mb-1 block text-sm text-cream-100/80">Nome</label>
+              <input
+                className="input-dominium"
+                value={instanciaEditando.nome}
+                onChange={(e) => setInstanciaEditando({ ...instanciaEditando, nome: e.target.value })}
+                required
+                autoFocus
+              />
+            </div>
+            <div className="mb-5">
+              <label className="mb-2 block text-sm text-cream-100/80">Cor</label>
+              <div className="flex flex-wrap gap-2">
+                {PALETA_INSTANCIA.map((cor) => (
+                  <button
+                    type="button"
+                    key={cor}
+                    onClick={() => setInstanciaEditando({ ...instanciaEditando, cor })}
+                    className="h-8 w-8 rounded-full border-2"
+                    style={{ background: cor, borderColor: instanciaEditando.cor === cor ? "#F7F5F0" : "transparent" }}
+                  />
+                ))}
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setInstanciaEditando(null)}
+                className="flex-1 rounded-xl border border-navy-700 py-3 text-sm text-cream-100/70"
+              >
+                Cancelar
+              </button>
+              <button type="submit" className="btn-gold flex-1">
+                Salvar
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
       {instanciaParaExcluir && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
           <div className="card-dominium w-full max-w-sm p-5 text-center">
@@ -449,30 +532,26 @@ const LABEL_JANELA: Record<string, string> = { mes: "no mês", "3m": "em 3 meses
 
 function GavetaCard({
   instancia,
-  grupo,
   dados,
   mesReferencia,
   janela,
   labelLancar,
   onLancar,
+  onEditarInstancia,
   onExcluirInstancia,
-  editando,
-  setEditando,
-  onSalvarEdicao,
+  onEditarLancamento,
   onExcluirLancamento,
   sticky,
 }: {
   instancia: Instancia;
-  grupo: Grupo;
   dados?: DadosGaveta;
   mesReferencia?: string;
   janela?: string;
   labelLancar?: string;
   onLancar?: () => void;
+  onEditarInstancia: () => void;
   onExcluirInstancia: () => void;
-  editando: { id: string; valorCentavos: number } | null;
-  setEditando: (v: { id: string; valorCentavos: number } | null) => void;
-  onSalvarEdicao: () => void;
+  onEditarLancamento: (l: Lancamento) => void;
   onExcluirLancamento: (id: string) => void;
   sticky?: boolean;
 }) {
@@ -482,14 +561,29 @@ function GavetaCard({
 
   return (
     <div className={`card-dominium p-4 ${sticky ? "lg:sticky lg:top-8" : ""}`}>
+      <div className="mb-1 flex items-center gap-2">
+        <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: instancia.cor }} />
+        <p className="min-w-0 flex-1 truncate text-sm font-medium" style={{ color: instancia.cor }}>
+          {instancia.nome}
+        </p>
+        <button
+          onClick={onEditarInstancia}
+          className="p-1 text-cream-100/40 hover:text-gold-300"
+          aria-label="Editar instância"
+        >
+          <Pencil size={14} />
+        </button>
+        <button
+          onClick={onExcluirInstancia}
+          className="p-1 text-cream-100/40 hover:text-danger"
+          aria-label="Excluir instância"
+        >
+          <Trash2 size={14} />
+        </button>
+      </div>
+
       <div className="mb-3 flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: instancia.cor }} />
-            <p className="truncate text-sm font-medium" style={{ color: instancia.cor }}>
-              {instancia.nome}
-            </p>
-          </div>
           <p className="tabular text-lg font-semibold text-cream-100">
             {formatarMoeda(totalJanela)}{" "}
             <span className="text-xs font-normal text-cream-100/50">
@@ -502,24 +596,15 @@ function GavetaCard({
             </p>
           )}
         </div>
-        <div className="flex shrink-0 items-center gap-1">
-          {onLancar && labelLancar && (
-            <button
-              onClick={onLancar}
-              className="rounded-full border px-3 py-1.5 text-xs font-medium"
-              style={{ borderColor: instancia.cor, color: instancia.cor }}
-            >
-              {labelLancar}
-            </button>
-          )}
+        {onLancar && labelLancar && (
           <button
-            onClick={onExcluirInstancia}
-            className="p-2 text-cream-100/40 hover:text-danger"
-            aria-label="Excluir instância"
+            onClick={onLancar}
+            className="shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium"
+            style={{ borderColor: instancia.cor, color: instancia.cor }}
           >
-            <Trash2 size={16} />
+            {labelLancar}
           </button>
-        </div>
+        )}
       </div>
 
       {!carregando && lancamentos.length === 0 && (
@@ -540,27 +625,13 @@ function GavetaCard({
                 </p>
               )}
             </div>
-            {editando?.id === l.id ? (
-              <div className="flex items-center gap-1">
-                <CampoMoeda
-                  compacto
-                  valorCentavos={editando.valorCentavos}
-                  onChange={(valorCentavos) => setEditando({ id: l.id, valorCentavos })}
-                  autoFocus
-                />
-                <button onClick={onSalvarEdicao} className="text-xs text-gold-300">
-                  OK
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={() => setEditando({ id: l.id, valorCentavos: numeroParaCentavos(l.valor) })}
-                className="p-2 text-cream-100/40 hover:text-gold-300"
-                aria-label="Editar valor"
-              >
-                <Pencil size={15} />
-              </button>
-            )}
+            <button
+              onClick={() => onEditarLancamento(l)}
+              className="p-2 text-cream-100/40 hover:text-gold-300"
+              aria-label="Editar lançamento"
+            >
+              <Pencil size={15} />
+            </button>
             <button
               onClick={() => onExcluirLancamento(l.id)}
               className="p-2 text-cream-100/40 hover:text-danger"

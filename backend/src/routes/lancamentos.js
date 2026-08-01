@@ -128,6 +128,44 @@ router.put('/:id', asyncHandler(async (req, res) => {
   return res.json({ lancamento: await serializarComRestantes(atualizado) });
 }));
 
+// Edicao completa (reabre o mesmo formulario de criacao ja preenchido): permite
+// alterar descricao/valor/tipo/periodo, recalculando mesFim a partir de mesInicio+parcelas.
+router.put('/:id/completo', asyncHandler(async (req, res) => {
+  const parsed = baseSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ erro: parsed.error.issues[0].message });
+
+  const erroParcelas = validarParcelasPorTipo(parsed.data);
+  if (erroParcelas) return res.status(400).json({ erro: erroParcelas });
+
+  const lancamento = await prisma.lancamento.findFirst({
+    where: { id: req.params.id, usuarioId: req.usuario.id },
+  });
+  if (!lancamento) return res.status(404).json({ erro: 'Lancamento nao encontrado.' });
+
+  try {
+    parseMes(parsed.data.mesInicio);
+  } catch {
+    return res.status(400).json({ erro: 'mesInicio invalido.' });
+  }
+
+  const mesFim =
+    parsed.data.tipo === 'temporario' ? somarMeses(parsed.data.mesInicio, parsed.data.parcelas - 1) : null;
+
+  const atualizado = await prisma.lancamento.update({
+    where: { id: lancamento.id },
+    data: {
+      descricao: parsed.data.descricao,
+      valor: parsed.data.valor,
+      tipo: parsed.data.tipo,
+      parcelas: parsed.data.tipo === 'temporario' ? parsed.data.parcelas : null,
+      mesInicio: parsed.data.mesInicio,
+      mesFim,
+      observacoes: parsed.data.observacoes || null,
+    },
+  });
+  return res.json({ lancamento: await serializarComRestantes(atualizado) });
+}));
+
 router.delete('/:id', asyncHandler(async (req, res) => {
   const lancamento = await prisma.lancamento.findFirst({
     where: { id: req.params.id, usuarioId: req.usuario.id },
