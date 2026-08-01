@@ -45,6 +45,9 @@ export default function InvestimentosPage() {
   const [modalOpcoes, setModalOpcoes] = useState<ContaInvestimento | null>(null);
   const [modalMigrar, setModalMigrar] = useState<ContaInvestimento | null>(null);
   const [modalAtualizarValor, setModalAtualizarValor] = useState<ContaInvestimento | null>(null);
+  const [modalLancarValor, setModalLancarValor] = useState<{ conta: ContaInvestimento; aporteMeta: Aporte } | null>(
+    null
+  );
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -236,7 +239,14 @@ export default function InvestimentosPage() {
                     </span>
                   </p>
                   <button
-                    onClick={() => abrirFoco(conta)}
+                    onClick={() => {
+                      const aporteMeta = conta.aportes.find((a) => a.valorMeta != null);
+                      if (aporteMeta) {
+                        setModalLancarValor({ conta, aporteMeta });
+                      } else {
+                        abrirFoco(conta);
+                      }
+                    }}
                     className="shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium"
                     style={{ borderColor: conta.cor, color: conta.cor }}
                   >
@@ -520,6 +530,18 @@ export default function InvestimentosPage() {
           }}
         />
       )}
+
+      {modalLancarValor && (
+        <ModalLancarValor
+          conta={modalLancarValor.conta}
+          aporteMeta={modalLancarValor.aporteMeta}
+          onClose={() => setModalLancarValor(null)}
+          onSalvo={async () => {
+            setModalLancarValor(null);
+            await carregar();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -556,6 +578,7 @@ function ListaValores({
                 {Math.max((a.parcelas || 0) - a.parcelasDecorridas, 0)}/{a.parcelas} restantes · juntado{" "}
                 {formatarMoeda(a.acumulado)}
                 {a.valorMeta != null && ` de ${formatarMoeda(a.valorMeta)}`}
+                {a.valorAbatido > 0 && ` · ${formatarMoeda(a.valorAbatido)} abatido antecipadamente`}
               </p>
             )}
           </div>
@@ -1115,6 +1138,71 @@ function ModalAtualizarValor({
           </button>
           <button type="submit" className="btn-gold flex-1" disabled={salvando}>
             {salvando ? "Salvando..." : "Confirmar"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function ModalLancarValor({
+  conta,
+  aporteMeta,
+  onClose,
+  onSalvo,
+}: {
+  conta: ContaInvestimento;
+  aporteMeta: Aporte;
+  onClose: () => void;
+  onSalvo: () => void;
+}) {
+  const [valorCentavos, setValorCentavos] = useState(0);
+  const [erro, setErro] = useState("");
+  const [salvando, setSalvando] = useState(false);
+
+  const faltam = Math.max((aporteMeta.valorMeta ?? 0) - aporteMeta.acumulado, 0);
+
+  async function salvar(e: React.FormEvent) {
+    e.preventDefault();
+    setErro("");
+    const valorNumerico = centavosParaNumero(valorCentavos);
+    if (!valorNumerico || valorNumerico <= 0) {
+      setErro("Informe um valor maior que zero.");
+      return;
+    }
+    setSalvando(true);
+    try {
+      await api.post(`/api/investimentos/aporte/${aporteMeta.id}/abater`, { valor: valorNumerico });
+      onSalvo();
+    } catch (err) {
+      setErro(err instanceof ApiError ? err.message : "Nao foi possivel lançar o valor.");
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center">
+      <form onSubmit={salvar} className="card-dominium w-full max-w-sm rounded-b-none p-5 sm:rounded-b-2xl">
+        <h2 className="mb-1 font-brand text-lg text-cream-100">Lançar valor</h2>
+        <p className="mb-4 text-xs text-cream-100/60">
+          {conta.nome} · faltam {formatarMoeda(faltam)} para a meta
+        </p>
+        <p className="mb-4 text-xs text-cream-100/40">
+          Esse valor abate diretamente das últimas parcelas da meta, acelerando o quanto falta para bater o
+          objetivo.
+        </p>
+
+        <CampoMoeda label="Valor" valorCentavos={valorCentavos} onChange={setValorCentavos} autoFocus required />
+
+        {erro && <p className="mt-3 text-sm text-danger">{erro}</p>}
+
+        <div className="mt-5 flex gap-2">
+          <button type="button" onClick={onClose} className="flex-1 rounded-xl border border-navy-700 py-3 text-sm text-cream-100/70">
+            Cancelar
+          </button>
+          <button type="submit" className="btn-gold flex-1" disabled={salvando}>
+            {salvando ? "Salvando..." : "Lançar valor"}
           </button>
         </div>
       </form>

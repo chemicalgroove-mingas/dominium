@@ -59,6 +59,7 @@ export type Lancamento = {
   mesFim: string | null;
   valorMeta: number | null;
   valorUltimaParcela: number | null;
+  valorAbatido: number;
   ativo: boolean;
   observacoes: string | null;
   criadoEm: string;

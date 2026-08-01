@@ -77,6 +77,9 @@ model Lancamento {
   mesFim      String?
   valorMeta          Float?
   valorUltimaParcela Float?
+  // total ja abatido antecipadamente das parcelas finais (da ultima pra primeira),
+  // via "Lancar valor" num projeto de reserva com meta. So usado quando valorMeta != null.
+  valorAbatido       Float    @default(0)
   // id do Pagamento (nao FK, so bookkeeping) que gerou este lancamento
   // automaticamente (excedente ou pendencia de "outro valor" em Pagamentos).
   criadoPorPagamentoId String?

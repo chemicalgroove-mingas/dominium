@@ -4,8 +4,18 @@ const { projetarLancamentoNaJanela } = require('./projecao');
 // Valor ja acumulado de um aporte (lancamento de uma instancia de investimento):
 // soma o que decorreu desde o mes de inicio do aporte ate o mes atual. Fixo
 // (aporte automatico) conta indefinidamente; temporario para no mesFim.
+//
+// Quando ha abatimento antecipado (valorAbatido), esse valor ja entrou "agora" —
+// as parcelas futuras (do fim pra tras) so refletem a reducao quando o calendario
+// chegar nelas. Somar valorAbatido aqui reconhece a contribuicao imediatamente,
+// sem contar em dobro: a soma de todas as parcelas (decorridas + futuras) do
+// lancamento inteiro sempre fecha em valorMeta, abatido incluso.
 function valorAcumuladoAporte(lancamento) {
-  return projetarLancamentoNaJanela(lancamento, lancamento.mesInicio, mesAtual()).total;
+  const base = projetarLancamentoNaJanela(lancamento, lancamento.mesInicio, mesAtual()).total;
+  if (lancamento.tipo === 'temporario' && lancamento.valorAbatido) {
+    return Math.round((base + lancamento.valorAbatido) * 100) / 100;
+  }
+  return base;
 }
 
 // Quantas parcelas ja decorreram (mes de inicio ate o mes atual, limitado ao mesFim).
@@ -13,11 +23,17 @@ function parcelasDecorridas(lancamento) {
   return projetarLancamentoNaJanela(lancamento, lancamento.mesInicio, mesAtual()).meses;
 }
 
+const EPS = 0.005;
+
 // Meta batida: so se aplica a aportes temporarios (tem prazo definido). A partir
-// do mes seguinte ao mesFim, a parcela para de ser contada como despesa.
+// do mes seguinte ao mesFim, a parcela para de ser contada como despesa. Tambem
+// conta como batida se o total ja acumulado (decorrido + abatido antecipadamente)
+// ja alcancou a meta, mesmo antes do mesFim — e o efeito de "acelerar" a meta.
 function metaBatida(lancamento) {
   if (lancamento.tipo !== 'temporario' || !lancamento.mesFim) return false;
-  return compararMeses(mesAtual(), lancamento.mesFim) > 0;
+  if (compararMeses(mesAtual(), lancamento.mesFim) > 0) return true;
+  if (lancamento.valorMeta != null && valorAcumuladoAporte(lancamento) >= lancamento.valorMeta - EPS) return true;
+  return false;
 }
 
 module.exports = { valorAcumuladoAporte, parcelasDecorridas, metaBatida };

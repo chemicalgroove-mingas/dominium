@@ -12,6 +12,27 @@ function limitesJanela(mesReferencia, janela) {
   return [mesReferencia, somarMeses(mesReferencia, meses - 1)];
 }
 
+// Valor nominal de cada parcela (1..parcelas) de um lancamento temporario, com o
+// abatimento antecipado (valorAbatido) consumindo as parcelas do fim pra tras —
+// usado por projetos de reserva com meta quando o usuario "Lanca valor" no projeto.
+function valoresPorParcela(lancamento) {
+  const n = lancamento.parcelas || 1;
+  const parcelas = [];
+  for (let i = 0; i < n; i += 1) {
+    const isUltima = i === n - 1;
+    const valor = isUltima && lancamento.valorUltimaParcela != null ? lancamento.valorUltimaParcela : lancamento.valor;
+    parcelas.push({ mes: somarMeses(lancamento.mesInicio, i), valor });
+  }
+
+  let abatido = lancamento.valorAbatido || 0;
+  for (let i = n - 1; i >= 0 && abatido > 0.001; i -= 1) {
+    const reduz = Math.min(parcelas[i].valor, abatido);
+    parcelas[i].valor = Math.round((parcelas[i].valor - reduz) * 100) / 100;
+    abatido = Math.round((abatido - reduz) * 100) / 100;
+  }
+  return parcelas;
+}
+
 // Quanto um lancamento contribui dentro de uma janela [janelaInicio, janelaFim],
 // considerando seu proprio periodo de vigencia (mesInicio..mesFim para temporario,
 // mesInicio..infinito para fixo). Calculo por competencia (calendario), nao por pagamento.
@@ -26,6 +47,13 @@ function projetarLancamentoNaJanela(lancamento, janelaInicio, janelaFim) {
   }
 
   const meses = diferencaEmMeses(inicioEfetivo, fimEfetivo) + 1;
+
+  if (lancamento.tipo === 'temporario' && lancamento.valorAbatido) {
+    const total = valoresPorParcela(lancamento)
+      .filter((p) => compararMeses(p.mes, inicioEfetivo) >= 0 && compararMeses(p.mes, fimEfetivo) <= 0)
+      .reduce((acc, p) => acc + p.valor, 0);
+    return { meses, total };
+  }
 
   const incluiUltimaParcela =
     lancamento.tipo === 'temporario' &&

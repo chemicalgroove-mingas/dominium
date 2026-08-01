@@ -157,6 +157,38 @@ router.delete('/aporte/:id', asyncHandler(async (req, res) => {
   return res.json({ ok: true });
 }));
 
+const abaterSchema = z.object({
+  valor: z.number().positive('Informe um valor maior que zero.'),
+});
+
+// "Lancar valor" num projeto com meta: em vez de criar um lancamento novo, o
+// valor abate diretamente das parcelas finais da meta (da ultima pra primeira),
+// acelerando o alcance do objetivo.
+router.post('/aporte/:id/abater', asyncHandler(async (req, res) => {
+  const parsed = abaterSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ erro: parsed.error.issues[0].message });
+
+  const aporte = await prisma.lancamento.findFirst({ where: { id: req.params.id, usuarioId: req.usuario.id } });
+  if (!aporte) return res.status(404).json({ erro: 'Aporte nao encontrado.' });
+  if (aporte.tipo !== 'temporario' || aporte.valorMeta == null) {
+    return res.status(400).json({ erro: 'Este aporte nao tem meta definida para abater valor.' });
+  }
+
+  const atualizado = await prisma.lancamento.update({
+    where: { id: aporte.id },
+    data: { valorAbatido: { increment: parsed.data.valor } },
+  });
+
+  return res.status(201).json({
+    aporte: {
+      ...atualizado,
+      acumulado: valorAcumuladoAporte(atualizado),
+      parcelasDecorridas: parcelasDecorridas(atualizado),
+      metaBatida: metaBatida(atualizado),
+    },
+  });
+}));
+
 const projetoBaseSchema = z.object({
   subgrupo: z.enum(SUBGRUPOS),
   nome: z.string().trim().min(1, 'Informe o nome do projeto.'),
