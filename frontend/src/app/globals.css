@@ -100,3 +100,26 @@ body {
   background: var(--dominium-gold-500);
   color: var(--dominium-navy-950);
 }
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--dominium-navy-700) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: var(--dominium-navy-700);
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--dominium-gold-500);
+}

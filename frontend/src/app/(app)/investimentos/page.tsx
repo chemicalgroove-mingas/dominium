@@ -5,6 +5,8 @@ import { ArrowLeft, Check, Pencil, Plus, Trash2 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { useInstancias } from "@/contexts/InstanciasContext";
 import { CampoMoeda } from "@/components/dominium/CampoMoeda";
+import { CampoMes } from "@/components/dominium/CampoMes";
+import { CampoPrazoMeses } from "@/components/dominium/CampoPrazoMeses";
 import { formatarMoeda } from "@/lib/format";
 import { diferencaEmMeses, formatarMesLabel, mesAtual, somarMeses } from "@/lib/mes";
 import { centavosParaNumero, numeroParaCentavos } from "@/lib/moeda";
@@ -867,7 +869,7 @@ function ModalProjeto({
       : 0;
   const [valorMetaCentavos, setValorMetaCentavos] = useState(numeroParaCentavos(metaInicial));
   const [modoTemporario, setModoTemporario] = useState<"parcela" | "prazo">("parcela");
-  const [prazoMeses, setPrazoMeses] = useState(aporte?.parcelas ?? 1);
+  const [prazoMeses, setPrazoMeses] = useState<number | "">(aporte?.parcelas ?? "");
 
   const valorMetaNumerico = centavosParaNumero(valorMetaCentavos);
   const valorParcelaNumerico = centavosParaNumero(valorParcelaCentavos);
@@ -887,7 +889,7 @@ function ModalProjeto({
               };
             })()
           : null
-        : prazoMeses >= 1
+        : typeof prazoMeses === "number" && prazoMeses >= 1
           ? (() => {
               const valorBase = Math.floor((valorMetaNumerico / prazoMeses) * 100) / 100;
               const ultimaBruta = Math.round((valorMetaNumerico - valorBase * (prazoMeses - 1)) * 100) / 100;
@@ -928,7 +930,7 @@ function ModalProjeto({
       tipo === "temporario"
         ? modoTemporario === "parcela"
           ? { valorMeta: valorMetaNumerico, valor: valorParcelaNumerico }
-          : { valorMeta: valorMetaNumerico, prazoMeses }
+          : { valorMeta: valorMetaNumerico, prazoMeses: plano?.parcelas }
         : {};
 
     const payload = {
@@ -1061,41 +1063,29 @@ function ModalProjeto({
               </button>
             </div>
 
-            <div className="mb-2">
-              {modoTemporario === "parcela" ? (
+            {modoTemporario === "parcela" && (
+              <div className="mb-2">
                 <CampoMoeda
                   label="Valor da parcela"
                   valorCentavos={valorParcelaCentavos}
                   onChange={setValorParcelaCentavos}
                   required
                 />
-              ) : (
-                <div>
-                  <label className="mb-1 block text-sm text-cream-100/80">Prazo (meses)</label>
-                  <input
-                    className="input-dominium"
-                    type="number"
-                    min={1}
-                    value={prazoMeses}
-                    onChange={(e) => setPrazoMeses(Math.max(1, Number(e.target.value) || 1))}
-                    required
-                  />
-                </div>
-              )}
-            </div>
+              </div>
+            )}
           </>
         )}
 
-        <div className="mb-4">
-          <label className="mb-1 block text-sm text-cream-100/80">Mês início</label>
-          <input
-            className="input-dominium"
-            type="month"
-            value={mesInicio}
-            onChange={(e) => setMesInicio(e.target.value)}
-            required
-          />
-        </div>
+        {tipo === "temporario" && modoTemporario === "prazo" ? (
+          <div className="mb-4 grid grid-cols-2 gap-3">
+            <CampoPrazoMeses label="Prazo (meses)" value={prazoMeses} onChange={setPrazoMeses} />
+            <CampoMes label="Mês início" value={mesInicio} onChange={setMesInicio} />
+          </div>
+        ) : (
+          <div className="mb-4">
+            <CampoMes label="Mês início" value={mesInicio} onChange={setMesInicio} />
+          </div>
+        )}
 
         {tipo === "temporario" && (
           <p className="mb-4 text-xs text-cream-100/50">
