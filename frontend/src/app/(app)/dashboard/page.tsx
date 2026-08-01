@@ -75,11 +75,17 @@ export default function DashboardPage() {
           <p className="text-xs text-cream-100/60">Comprometimento</p>
           <p className="tabular text-2xl font-semibold text-cream-100">{dados.comprometimento.toFixed(0)}%</p>
         </div>
-        <div className="card-dominium p-4">
-          <p className="text-xs text-cream-100/60">Reserva</p>
-          <p className="tabular text-gold-gradient text-2xl font-semibold">
-            {formatarMoeda(dados.patrimonioInvestido)}
-          </p>
+        <div className="card-dominium grid grid-cols-2 divide-x divide-navy-700 p-4">
+          <div className="pr-3">
+            <p className="text-[11px] text-cream-100/60">Reserva Pessoal</p>
+            <p className="tabular text-lg font-semibold text-cream-100">{formatarMoeda(dados.patrimonioPessoal)}</p>
+          </div>
+          <div className="pl-3">
+            <p className="text-[11px] text-cream-100/60">Reserva Patrimonial</p>
+            <p className="tabular text-gold-gradient text-lg font-semibold">
+              {formatarMoeda(dados.patrimonioPatrimonial)}
+            </p>
+          </div>
         </div>
       </div>
 
@@ -169,15 +175,26 @@ export default function DashboardPage() {
             {formatarMoeda(dados.patrimonioInvestido)}
           </span>
         </div>
-        <div className="flex flex-col gap-1">
-          {dados.contasInvestimento.map((c) => (
-            <div key={c.id} className="flex items-center gap-2 text-sm">
-              <span className="h-2.5 w-2.5 rounded-full" style={{ background: c.cor }} />
-              <span className="flex-1 truncate text-cream-100/80">{c.nome}</span>
-              <span className="tabular text-cream-100">{formatarMoeda(c.patrimonio)}</span>
+        {(["pessoal", "patrimonial"] as const).map((sub) => {
+          const contas = dados.contasInvestimento.filter((c) => c.subgrupo === sub);
+          if (contas.length === 0) return null;
+          return (
+            <div key={sub} className="mb-3 last:mb-0">
+              <p className="mb-1 text-[11px] uppercase tracking-wide text-cream-100/40">
+                {sub === "pessoal" ? "Reserva Pessoal" : "Reserva Patrimonial"}
+              </p>
+              <div className="flex flex-col gap-1">
+                {contas.map((c) => (
+                  <div key={c.id} className="flex items-center gap-2 text-sm">
+                    <span className="h-2.5 w-2.5 rounded-full" style={{ background: c.cor }} />
+                    <span className="flex-1 truncate text-cream-100/80">{c.nome}</span>
+                    <span className="tabular text-cream-100">{formatarMoeda(c.patrimonio)}</span>
+                  </div>
+                ))}
+              </div>
             </div>
-          ))}
-        </div>
+          );
+        })}
       </div>
     </div>
   );

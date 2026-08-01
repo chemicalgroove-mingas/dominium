@@ -1,155 +1,466 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ArrowLeft, Check, Pencil, Plus, Trash2 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { useInstancias } from "@/contexts/InstanciasContext";
-import { formatarMoeda } from "@/lib/format";
-import { centavosParaNumero } from "@/lib/moeda";
 import { CampoMoeda } from "@/components/dominium/CampoMoeda";
-import { PALETA_INSTANCIA, COR_SUGERIDA_POR_GRUPO } from "@/lib/cores";
-import type { ContaInvestimento, Instancia } from "@/lib/types";
+import { formatarMoeda } from "@/lib/format";
+import { diferencaEmMeses, mesAtual, somarMeses } from "@/lib/mes";
+import { centavosParaNumero, numeroParaCentavos } from "@/lib/moeda";
+import { PALETA_INSTANCIA } from "@/lib/cores";
+import type { Aporte, ContaInvestimento, Instancia, Subgrupo, TipoLancamento } from "@/lib/types";
+
+const LABEL_SUBGRUPO: Record<Subgrupo, string> = { pessoal: "Reserva Pessoal", patrimonial: "Reserva Patrimonial" };
+const COR_SUGERIDA: Record<Subgrupo, string> = { pessoal: "#B368E0", patrimonial: "#4CAF7D" };
+
+const FORM_VAZIO = {
+  descricao: "",
+  valorCentavos: 0,
+  tipo: "fixo" as TipoLancamento,
+  mesInicio: mesAtual(),
+  mesFim: "",
+  observacoes: "",
+};
 
 export default function InvestimentosPage() {
   const { recarregar: recarregarInstancias } = useInstancias();
+
+  const [subgrupo, setSubgrupo] = useState<Subgrupo>("pessoal");
   const [contas, setContas] = useState<ContaInvestimento[]>([]);
   const [carregando, setCarregando] = useState(true);
 
+  const [estado, setEstado] = useState<"geral" | "foco">("geral");
+  const [contaFoco, setContaFoco] = useState<ContaInvestimento | null>(null);
+  const [aporteEditando, setAporteEditando] = useState<Aporte | null>(null);
+  const [form, setForm] = useState(FORM_VAZIO);
+  const [erroForm, setErroForm] = useState("");
+  const [salvando, setSalvando] = useState(false);
+
   const [novaConta, setNovaConta] = useState<{ nome: string; cor: string } | null>(null);
-  const [novoFluxo, setNovoFluxo] = useState<{ contaId: string; tipo: "aporte" | "resgate" } | null>(null);
+  const [contaEditando, setContaEditando] = useState<{ id: string; nome: string; cor: string } | null>(null);
+  const [contaParaExcluir, setContaParaExcluir] = useState<Instancia | null>(null);
+  const [modalResgate, setModalResgate] = useState<ContaInvestimento | null>(null);
+  const [modalOpcoes, setModalOpcoes] = useState<ContaInvestimento | null>(null);
+  const [modalMigrar, setModalMigrar] = useState<ContaInvestimento | null>(null);
 
   const carregar = useCallback(async () => {
     setCarregando(true);
     try {
-      const data = await api.get<{ contas: ContaInvestimento[] }>("/api/investimentos");
+      const data = await api.get<{ contas: ContaInvestimento[] }>(`/api/investimentos?subgrupo=${subgrupo}`);
       setContas(data.contas);
     } finally {
       setCarregando(false);
     }
-  }, []);
+  }, [subgrupo]);
 
   useEffect(() => {
     carregar();
+    setEstado("geral");
   }, [carregar]);
+
+  const patrimonioTotal = useMemo(() => contas.reduce((acc, c) => acc + c.patrimonio, 0), [contas]);
+
+  function abrirFoco(conta: ContaInvestimento) {
+    setContaFoco(conta);
+    setAporteEditando(null);
+    setForm({ ...FORM_VAZIO, mesInicio: mesAtual() });
+    setErroForm("");
+    setEstado("foco");
+  }
+
+  function abrirEdicaoAporte(conta: ContaInvestimento, aporte: Aporte) {
+    setContaFoco(conta);
+    setAporteEditando(aporte);
+    setForm({
+      descricao: aporte.descricao,
+      valorCentavos: numeroParaCentavos(aporte.valor),
+      tipo: aporte.tipo,
+      mesInicio: aporte.mesInicio,
+      mesFim:
+        aporte.tipo === "temporario"
+          ? aporte.mesFim || somarMeses(aporte.mesInicio, (aporte.parcelas || 1) - 1)
+          : "",
+      observacoes: aporte.observacoes || "",
+    });
+    setErroForm("");
+    setEstado("foco");
+  }
+
+  function voltarParaGeral() {
+    setEstado("geral");
+    setContaFoco(null);
+    setAporteEditando(null);
+    setErroForm("");
+  }
+
+  const parcelasCalculadas =
+    form.tipo === "temporario" && form.mesInicio && form.mesFim
+      ? diferencaEmMeses(form.mesInicio, form.mesFim) + 1
+      : null;
 
   async function criarConta(e: React.FormEvent) {
     e.preventDefault();
     if (!novaConta) return;
-    await api.post<{ instancia: Instancia }>("/api/instancias", {
-      nome: novaConta.nome,
-      grupo: "investimento",
-      cor: novaConta.cor,
-    });
+    await api.post("/api/instancias", { nome: novaConta.nome, grupo: "investimento", subgrupo, cor: novaConta.cor });
     setNovaConta(null);
-    await recarregarInstancias();
+    await Promise.all([recarregarInstancias(), carregar()]);
+  }
+
+  async function salvarEdicaoConta(e: React.FormEvent) {
+    e.preventDefault();
+    if (!contaEditando) return;
+    await api.put(`/api/instancias/${contaEditando.id}`, { nome: contaEditando.nome, cor: contaEditando.cor });
+    setContaEditando(null);
+    await Promise.all([recarregarInstancias(), carregar()]);
+  }
+
+  async function excluirConta() {
+    if (!contaParaExcluir) return;
+    await api.delete(`/api/instancias/${contaParaExcluir.id}`);
+    setContaParaExcluir(null);
+    if (contaFoco?.id === contaParaExcluir.id) voltarParaGeral();
+    await Promise.all([recarregarInstancias(), carregar()]);
+  }
+
+  async function salvarAporte(e: React.FormEvent) {
+    e.preventDefault();
+    if (!contaFoco) return;
+    setErroForm("");
+
+    const valorNumerico = centavosParaNumero(form.valorCentavos);
+    if (!valorNumerico || valorNumerico <= 0) {
+      setErroForm("Informe um valor maior que zero.");
+      return;
+    }
+    if (form.tipo === "temporario" && (!parcelasCalculadas || parcelasCalculadas < 1)) {
+      setErroForm("Mês fim precisa ser igual ou posterior ao mês início.");
+      return;
+    }
+
+    const payload = {
+      instanciaId: contaFoco.id,
+      descricao: form.descricao,
+      valor: valorNumerico,
+      tipo: form.tipo,
+      parcelas: form.tipo === "temporario" ? parcelasCalculadas : null,
+      mesInicio: form.mesInicio,
+      observacoes: form.observacoes || null,
+    };
+
+    setSalvando(true);
+    try {
+      if (aporteEditando) {
+        await api.put(`/api/investimentos/aporte/${aporteEditando.id}`, payload);
+      } else {
+        await api.post("/api/investimentos/aporte", payload);
+      }
+      await carregar();
+      voltarParaGeral();
+    } catch (err) {
+      setErroForm(err instanceof ApiError ? err.message : "Nao foi possivel salvar o aporte.");
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  async function excluirAporte(id: string) {
+    await api.delete(`/api/investimentos/aporte/${id}`);
     await carregar();
   }
 
-  async function excluirConta(id: string) {
-    if (!confirm("Excluir esta conta e todos os fluxos vinculados?")) return;
-    await api.delete(`/api/instancias/${id}`);
-    await recarregarInstancias();
+  async function excluirResgate(id: string) {
+    await api.delete(`/api/investimentos/resgate/${id}`);
     await carregar();
   }
 
-  async function excluirFluxo(id: string) {
-    await api.delete(`/api/investimentos/${id}`);
-    await carregar();
+  async function concluirProjeto(conta: ContaInvestimento) {
+    await api.patch(`/api/instancias/${conta.id}/ativa`);
+    setModalOpcoes(null);
+    if (contaFoco?.id === conta.id) voltarParaGeral();
+    await Promise.all([recarregarInstancias(), carregar()]);
   }
-
-  const patrimonioTotal = contas.reduce((acc, c) => acc + c.patrimonio, 0);
 
   return (
-    <div className="mx-auto max-w-3xl">
+    <div className="mx-auto max-w-3xl lg:max-w-5xl">
       <div className="mb-4 flex items-center justify-between">
-        <h1 className="font-brand text-2xl text-cream-100">Reserva e Investimentos</h1>
-        <button
-          onClick={() => setNovaConta({ nome: "", cor: COR_SUGERIDA_POR_GRUPO.investimento })}
-          className="btn-gold flex items-center gap-2 px-4 py-2 text-sm"
-        >
-          <Plus size={16} /> Nova conta
-        </button>
+        <h1 className="font-brand text-2xl text-cream-100">Reserva</h1>
+      </div>
+
+      <div className="mb-4 flex gap-2">
+        {(["pessoal", "patrimonial"] as Subgrupo[]).map((s) => (
+          <button
+            key={s}
+            onClick={() => setSubgrupo(s)}
+            className={`min-h-[44px] flex-1 rounded-xl border text-sm font-medium ${
+              subgrupo === s ? "border-gold-500 bg-gold-500/10 text-gold-300" : "border-navy-700 text-cream-100/70"
+            }`}
+          >
+            {LABEL_SUBGRUPO[s]}
+          </button>
+        ))}
       </div>
 
       <div className="card-dominium mb-6 p-4 text-center">
-        <p className="text-xs text-cream-100/60">Patrimônio investido</p>
+        <p className="text-xs text-cream-100/60">{LABEL_SUBGRUPO[subgrupo]} — total</p>
         <p className="tabular text-gold-gradient text-2xl font-semibold">{formatarMoeda(patrimonioTotal)}</p>
+        <p className="mt-1 text-xs text-cream-100/40">
+          {subgrupo === "pessoal"
+            ? "Projetos e vontades de curto/médio prazo (trocar de carro, celular, presente...)."
+            : "Formação de patrimônio de longo prazo (investimentos, previdência...)."}
+        </p>
       </div>
 
-      {!carregando && contas.length === 0 && (
-        <div className="card-dominium p-6 text-center text-sm text-cream-100/70">
-          Crie uma conta (ex: &quot;Caixa 3438&quot;) e lance aportes ou resgates. Aportar é como pagar uma conta
-          para si mesmo.
-        </div>
-      )}
-
-      <div className="flex flex-col gap-4">
-        {contas.map((conta) => (
-          <div key={conta.id} className="card-dominium p-4">
-            <div className="mb-3 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="h-3 w-3 rounded-full" style={{ background: conta.cor }} />
-                <span className="text-sm font-medium text-cream-100">{conta.nome}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="tabular text-sm font-semibold text-cream-100">
-                  {formatarMoeda(conta.patrimonio)}
-                </span>
-                <button onClick={() => excluirConta(conta.id)} className="p-1 text-cream-100/40 hover:text-danger">
-                  <Trash2 size={16} />
-                </button>
-              </div>
-            </div>
-
-            <div className="mb-3 flex gap-2">
-              <button
-                onClick={() => setNovoFluxo({ contaId: conta.id, tipo: "aporte" })}
-                className="flex-1 rounded-xl border border-success py-2 text-sm text-success"
-              >
-                + Aporte
-              </button>
-              <button
-                onClick={() => setNovoFluxo({ contaId: conta.id, tipo: "resgate" })}
-                className="flex-1 rounded-xl border border-danger py-2 text-sm text-danger"
-              >
-                − Resgate
-              </button>
-            </div>
-
-            <div className="flex flex-col gap-1">
-              {conta.fluxos.map((f) => (
-                <div key={f.id} className="flex items-center gap-2 text-sm">
-                  <span className="text-cream-100/50">
-                    {new Date(f.criadoEm).toLocaleDateString("pt-BR")}
-                  </span>
-                  <span className="flex-1 truncate text-cream-100/80">{f.descricao}</span>
-                  <span className={`tabular ${f.valor < 0 ? "text-danger" : "text-success"}`}>
-                    {formatarMoeda(f.valor)}
-                  </span>
-                  <button onClick={() => excluirFluxo(f.id)} className="p-1 text-cream-100/40 hover:text-danger">
+      {estado === "geral" && (
+        <>
+          <div className="mb-4 grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
+            {contas.map((conta) => (
+              <div key={conta.id} className="card-dominium p-4">
+                <div className="mb-1 flex items-center gap-2">
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: conta.cor }} />
+                  <p className="min-w-0 flex-1 truncate text-sm font-medium" style={{ color: conta.cor }}>
+                    {conta.nome}
+                  </p>
+                  {conta.metaBatida && (
+                    <span className="flex items-center gap-1 rounded-full bg-success/10 px-2 py-0.5 text-[10px] font-medium text-success">
+                      <Check size={11} /> Meta batida
+                    </span>
+                  )}
+                  <button
+                    onClick={() => setContaEditando({ id: conta.id, nome: conta.nome, cor: conta.cor })}
+                    className="p-1 text-cream-100/40 hover:text-gold-300"
+                    aria-label="Editar conta"
+                  >
+                    <Pencil size={14} />
+                  </button>
+                  <button
+                    onClick={() => setContaParaExcluir(conta)}
+                    className="p-1 text-cream-100/40 hover:text-danger"
+                    aria-label="Excluir conta"
+                  >
                     <Trash2 size={14} />
                   </button>
                 </div>
-              ))}
-              {conta.fluxos.length === 0 && (
-                <p className="py-2 text-center text-xs text-cream-100/50">Nenhum fluxo lançado ainda.</p>
+
+                <p className="tabular mb-3 text-lg font-semibold text-cream-100">{formatarMoeda(conta.patrimonio)}</p>
+
+                <div className="flex flex-wrap gap-2">
+                  <button onClick={() => abrirFoco(conta)} className="btn-gold px-3 py-2 text-xs">
+                    Fazer Aporte
+                  </button>
+                  <button
+                    onClick={() => setModalResgate(conta)}
+                    className="rounded-xl border border-danger px-3 py-2 text-xs text-danger"
+                  >
+                    Resgatar
+                  </button>
+                  {conta.metaBatida && (
+                    <button
+                      onClick={() => setModalOpcoes(conta)}
+                      className="rounded-xl border border-gold-500 px-3 py-2 text-xs text-gold-300"
+                    >
+                      Ver Opções
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {!carregando && contas.length === 0 && (
+            <div className="card-dominium mb-4 p-6 text-center text-sm text-cream-100/70">
+              Nenhuma conta de {LABEL_SUBGRUPO[subgrupo].toLowerCase()} ainda. Crie uma (ex:{" "}
+              {subgrupo === "pessoal" ? '"Trocar de celular"' : '"Investimento IPCA+"'}) e lance aportes.
+            </div>
+          )}
+
+          <button
+            onClick={() => setNovaConta({ nome: "", cor: COR_SUGERIDA[subgrupo] })}
+            className="flex w-full items-center justify-center gap-1 rounded-full border border-dashed border-gold-500/50 px-4 py-3 text-sm text-gold-300"
+          >
+            <Plus size={16} /> Nova conta
+          </button>
+        </>
+      )}
+
+      {estado === "foco" && contaFoco && (
+        <div>
+          <button
+            onClick={voltarParaGeral}
+            className="mb-4 flex items-center gap-1 text-sm text-cream-100/70 hover:text-gold-300"
+          >
+            <ArrowLeft size={16} /> Voltar
+          </button>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:items-start">
+            <form onSubmit={salvarAporte} className="card-dominium flex flex-col gap-4 p-5">
+              <div>
+                <label className="mb-1 block text-sm text-cream-100/80">Descrição</label>
+                <input
+                  className="input-dominium"
+                  value={form.descricao}
+                  onChange={(e) => setForm({ ...form, descricao: e.target.value })}
+                  required
+                  autoFocus
+                />
+              </div>
+
+              <CampoMoeda
+                label="Valor do aporte"
+                valorCentavos={form.valorCentavos}
+                onChange={(valorCentavos) => setForm({ ...form, valorCentavos })}
+                required
+              />
+
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setForm({ ...form, tipo: "fixo" })}
+                  className={`min-h-[44px] rounded-xl border text-sm ${
+                    form.tipo === "fixo" ? "border-gold-500 text-gold-300" : "border-navy-700 text-cream-100/60"
+                  }`}
+                >
+                  Fixo (automático)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setForm({ ...form, tipo: "temporario", mesFim: form.mesFim || form.mesInicio })}
+                  className={`min-h-[44px] rounded-xl border text-sm ${
+                    form.tipo === "temporario" ? "border-gold-500 text-gold-300" : "border-navy-700 text-cream-100/60"
+                  }`}
+                >
+                  Temporário
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1 block text-sm text-cream-100/80">Mês início</label>
+                  <input
+                    className="input-dominium"
+                    type="month"
+                    value={form.mesInicio}
+                    onChange={(e) => setForm({ ...form, mesInicio: e.target.value })}
+                    required
+                  />
+                </div>
+                {form.tipo === "temporario" && (
+                  <div>
+                    <label className="mb-1 block text-sm text-cream-100/80">Mês fim</label>
+                    <input
+                      className="input-dominium"
+                      type="month"
+                      value={form.mesFim}
+                      min={form.mesInicio}
+                      onChange={(e) => setForm({ ...form, mesFim: e.target.value })}
+                      required
+                    />
+                  </div>
+                )}
+              </div>
+
+              {form.tipo === "temporario" && (
+                <p className="-mt-2 text-xs text-cream-100/50">
+                  {parcelasCalculadas && parcelasCalculadas >= 1
+                    ? `${parcelasCalculadas} parcela${parcelasCalculadas === 1 ? "" : "s"} calculada${
+                        parcelasCalculadas === 1 ? "" : "s"
+                      } automaticamente.`
+                    : "Mês fim precisa ser igual ou posterior ao mês início."}
+                </p>
               )}
+
+              <div>
+                <label className="mb-1 block text-sm text-cream-100/80">Observações (opcional)</label>
+                <input
+                  className="input-dominium"
+                  value={form.observacoes}
+                  onChange={(e) => setForm({ ...form, observacoes: e.target.value })}
+                />
+              </div>
+
+              {erroForm && <p className="text-sm text-danger">{erroForm}</p>}
+
+              <button type="submit" className="btn-gold" disabled={salvando}>
+                {salvando
+                  ? "Salvando..."
+                  : aporteEditando
+                    ? "Alterar aporte"
+                    : "Fazer Aporte"}
+              </button>
+            </form>
+
+            <div className="card-dominium p-4 lg:sticky lg:top-8">
+              <p className="mb-1 text-sm font-medium" style={{ color: contaFoco.cor }}>
+                {contaFoco.nome}
+              </p>
+              <p className="tabular mb-3 text-lg font-semibold text-cream-100">
+                {formatarMoeda(contas.find((c) => c.id === contaFoco.id)?.patrimonio ?? contaFoco.patrimonio)}
+              </p>
+
+              <div className="flex flex-col gap-2 lg:max-h-[calc(100vh-14rem)] lg:overflow-y-auto lg:pr-1">
+                {(contas.find((c) => c.id === contaFoco.id)?.aportes || []).map((a) => (
+                  <div key={a.id} className="flex items-center gap-3 border-t border-navy-700 pt-2 first:border-t-0 first:pt-0">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm text-cream-100">
+                        {a.descricao} {a.metaBatida && <Check size={12} className="ml-1 inline text-success" />}
+                      </p>
+                      {a.tipo === "fixo" ? (
+                        <p className="tabular text-xs text-cream-100/60">{formatarMoeda(a.valor)}/mês · FIXO</p>
+                      ) : (
+                        <p className="tabular text-xs text-cream-100/60">
+                          {formatarMoeda(a.valor)}/parcela · {a.restantes}/{a.parcelas} restantes · juntado{" "}
+                          {formatarMoeda(a.acumulado)}
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => abrirEdicaoAporte(contaFoco, a)}
+                      className="p-2 text-cream-100/40 hover:text-gold-300"
+                      aria-label="Editar aporte"
+                    >
+                      <Pencil size={15} />
+                    </button>
+                    <button
+                      onClick={() => excluirAporte(a.id)}
+                      className="p-2 text-cream-100/40 hover:text-danger"
+                      aria-label="Excluir aporte"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                ))}
+                {(contas.find((c) => c.id === contaFoco.id)?.resgates || []).map((r) => (
+                  <div key={r.id} className="flex items-center gap-3 border-t border-navy-700 pt-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm text-cream-100">{r.descricao}</p>
+                      <p className="tabular text-xs text-danger">{formatarMoeda(r.valor)} · resgate</p>
+                    </div>
+                    <button
+                      onClick={() => excluirResgate(r.id)}
+                      className="p-2 text-cream-100/40 hover:text-danger"
+                      aria-label="Excluir resgate"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
-        ))}
-      </div>
+        </div>
+      )}
 
       {novaConta && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center">
           <form onSubmit={criarConta} className="card-dominium w-full max-w-sm rounded-b-none p-5 sm:rounded-b-2xl">
-            <h2 className="mb-4 font-brand text-lg text-cream-100">Nova conta</h2>
+            <h2 className="mb-4 font-brand text-lg text-cream-100">Nova conta — {LABEL_SUBGRUPO[subgrupo]}</h2>
             <div className="mb-4">
               <label className="mb-1 block text-sm text-cream-100/80">Nome</label>
               <input
                 className="input-dominium"
                 value={novaConta.nome}
                 onChange={(e) => setNovaConta({ ...novaConta, nome: e.target.value })}
-                placeholder="Ex: Caixa 3438"
+                placeholder={subgrupo === "pessoal" ? "Ex: Trocar de celular" : "Ex: Investimento IPCA+"}
                 required
                 autoFocus
               />
@@ -180,14 +491,118 @@ export default function InvestimentosPage() {
         </div>
       )}
 
-      {novoFluxo && (
-        <ModalFluxo
-          contaId={novoFluxo.contaId}
-          tipo={novoFluxo.tipo}
-          onClose={() => setNovoFluxo(null)}
-          onSalvo={async () => {
-            setNovoFluxo(null);
-            await carregar();
+      {contaEditando && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center">
+          <form onSubmit={salvarEdicaoConta} className="card-dominium w-full max-w-sm rounded-b-none p-5 sm:rounded-b-2xl">
+            <h2 className="mb-4 font-brand text-lg text-cream-100">Editar conta</h2>
+            <div className="mb-4">
+              <label className="mb-1 block text-sm text-cream-100/80">Nome</label>
+              <input
+                className="input-dominium"
+                value={contaEditando.nome}
+                onChange={(e) => setContaEditando({ ...contaEditando, nome: e.target.value })}
+                required
+                autoFocus
+              />
+            </div>
+            <div className="mb-5">
+              <label className="mb-2 block text-sm text-cream-100/80">Cor</label>
+              <div className="flex flex-wrap gap-2">
+                {PALETA_INSTANCIA.map((cor) => (
+                  <button
+                    type="button"
+                    key={cor}
+                    onClick={() => setContaEditando({ ...contaEditando, cor })}
+                    className="h-8 w-8 rounded-full border-2"
+                    style={{ background: cor, borderColor: contaEditando.cor === cor ? "#F7F5F0" : "transparent" }}
+                  />
+                ))}
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setContaEditando(null)} className="flex-1 rounded-xl border border-navy-700 py-3 text-sm text-cream-100/70">
+                Cancelar
+              </button>
+              <button type="submit" className="btn-gold flex-1">
+                Salvar
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {contaParaExcluir && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="card-dominium w-full max-w-sm p-5 text-center">
+            <p className="mb-4 text-sm text-cream-100">
+              Excluir &quot;{contaParaExcluir.nome}&quot;? Todos os aportes e resgates vinculados serão apagados junto.
+            </p>
+            <div className="flex gap-2">
+              <button onClick={() => setContaParaExcluir(null)} className="flex-1 rounded-xl border border-navy-700 py-3 text-sm text-cream-100/70">
+                Cancelar
+              </button>
+              <button onClick={excluirConta} className="flex-1 rounded-xl bg-danger py-3 text-sm font-medium text-cream-100">
+                Excluir
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {modalResgate && (
+        <ModalResgate conta={modalResgate} onClose={() => setModalResgate(null)} onSalvo={async () => { setModalResgate(null); await carregar(); }} />
+      )}
+
+      {modalOpcoes && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center">
+          <div className="card-dominium w-full max-w-sm rounded-b-none p-5 text-center sm:rounded-b-2xl">
+            <h2 className="mb-1 font-brand text-lg text-cream-100">Qual o destino desta reserva?</h2>
+            <p className="mb-4 text-xs text-cream-100/60">
+              {modalOpcoes.nome} · {formatarMoeda(modalOpcoes.patrimonio)} juntados
+            </p>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => concluirProjeto(modalOpcoes)}
+                className="btn-gold py-3 text-sm"
+              >
+                Concluir projeto (retirar o valor juntado)
+              </button>
+              <button
+                onClick={() => {
+                  const ultimoAporte = modalOpcoes.aportes.find((a) => a.metaBatida) || modalOpcoes.aportes[0];
+                  setModalOpcoes(null);
+                  if (ultimoAporte) abrirEdicaoAporte(modalOpcoes, ultimoAporte);
+                }}
+                className="rounded-xl border border-navy-700 py-3 text-sm text-cream-100/80"
+              >
+                Continuar juntando (acrescentar parcelas)
+              </button>
+              {subgrupo === "pessoal" && (
+                <button
+                  onClick={() => {
+                    setModalOpcoes(null);
+                    setModalMigrar(modalOpcoes);
+                  }}
+                  className="rounded-xl border border-gold-500 py-3 text-sm text-gold-300"
+                >
+                  Migrar para Reserva Patrimonial
+                </button>
+              )}
+              <button onClick={() => setModalOpcoes(null)} className="py-2 text-xs text-cream-100/50">
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {modalMigrar && (
+        <ModalMigrar
+          contaOrigem={modalMigrar}
+          onClose={() => setModalMigrar(null)}
+          onMigrado={async () => {
+            setModalMigrar(null);
+            await Promise.all([recarregarInstancias(), carregar()]);
           }}
         />
       )}
@@ -195,18 +610,16 @@ export default function InvestimentosPage() {
   );
 }
 
-function ModalFluxo({
-  contaId,
-  tipo,
+function ModalResgate({
+  conta,
   onClose,
   onSalvo,
 }: {
-  contaId: string;
-  tipo: "aporte" | "resgate";
+  conta: ContaInvestimento;
   onClose: () => void;
   onSalvo: () => void;
 }) {
-  const [descricao, setDescricao] = useState(tipo === "aporte" ? "Aporte" : "Resgate");
+  const [descricao, setDescricao] = useState("Resgate");
   const [valorCentavos, setValorCentavos] = useState(0);
   const [erro, setErro] = useState("");
   const [salvando, setSalvando] = useState(false);
@@ -221,11 +634,7 @@ function ModalFluxo({
     }
     setSalvando(true);
     try {
-      await api.post("/api/investimentos", {
-        instanciaId: contaId,
-        descricao,
-        valor: tipo === "aporte" ? valorNumerico : -valorNumerico,
-      });
+      await api.post("/api/investimentos/resgate", { instanciaId: conta.id, descricao, valor: valorNumerico });
       onSalvo();
     } catch (err) {
       setErro(err instanceof ApiError ? err.message : "Nao foi possivel salvar.");
@@ -237,9 +646,8 @@ function ModalFluxo({
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center">
       <form onSubmit={salvar} className="card-dominium w-full max-w-sm rounded-b-none p-5 sm:rounded-b-2xl">
-        <h2 className="mb-4 font-brand text-lg text-cream-100">
-          {tipo === "aporte" ? "Novo aporte" : "Novo resgate"}
-        </h2>
+        <h2 className="mb-1 font-brand text-lg text-cream-100">Resgatar</h2>
+        <p className="mb-4 text-xs text-cream-100/60">{conta.nome} · {formatarMoeda(conta.patrimonio)} disponível</p>
         <div className="mb-4">
           <label className="mb-1 block text-sm text-cream-100/80">Descrição</label>
           <input className="input-dominium" value={descricao} onChange={(e) => setDescricao(e.target.value)} required />
@@ -252,8 +660,97 @@ function ModalFluxo({
           <button type="button" onClick={onClose} className="flex-1 rounded-xl border border-navy-700 py-3 text-sm text-cream-100/70">
             Cancelar
           </button>
-          <button type="submit" className="btn-gold flex-1" disabled={salvando}>
-            {salvando ? "Salvando..." : "Confirmar"}
+          <button type="submit" className="flex-1 rounded-xl bg-danger py-3 text-sm font-medium text-cream-100" disabled={salvando}>
+            {salvando ? "Salvando..." : "Confirmar resgate"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function ModalMigrar({
+  contaOrigem,
+  onClose,
+  onMigrado,
+}: {
+  contaOrigem: ContaInvestimento;
+  onClose: () => void;
+  onMigrado: () => void;
+}) {
+  const [destinos, setDestinos] = useState<ContaInvestimento[]>([]);
+  const [destinoId, setDestinoId] = useState("");
+  const [erro, setErro] = useState("");
+  const [salvando, setSalvando] = useState(false);
+
+  useEffect(() => {
+    api.get<{ contas: ContaInvestimento[] }>("/api/investimentos?subgrupo=patrimonial").then((data) => {
+      setDestinos(data.contas);
+      if (data.contas[0]) setDestinoId(data.contas[0].id);
+    });
+  }, []);
+
+  async function migrar(e: React.FormEvent) {
+    e.preventDefault();
+    setErro("");
+    if (!destinoId) {
+      setErro("Escolha a conta de destino.");
+      return;
+    }
+    setSalvando(true);
+    try {
+      await api.post("/api/investimentos/migrar", {
+        instanciaOrigemId: contaOrigem.id,
+        instanciaDestinoId: destinoId,
+      });
+      onMigrado();
+    } catch (err) {
+      setErro(err instanceof ApiError ? err.message : "Nao foi possivel migrar.");
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center">
+      <form onSubmit={migrar} className="card-dominium w-full max-w-sm rounded-b-none p-5 sm:rounded-b-2xl">
+        <h2 className="mb-1 font-brand text-lg text-cream-100">Migrar para Reserva Patrimonial</h2>
+        <p className="mb-4 text-xs text-cream-100/60">
+          {contaOrigem.nome} · {formatarMoeda(contaOrigem.patrimonio)} serão transferidos
+        </p>
+
+        {destinos.length === 0 ? (
+          <p className="mb-4 text-sm text-cream-100/60">
+            Crie primeiro uma conta em Reserva Patrimonial para receber essa migração.
+          </p>
+        ) : (
+          <div className="mb-5">
+            <label className="mb-2 block text-sm text-cream-100/80">Conta de destino</label>
+            <div className="flex flex-col gap-2">
+              {destinos.map((d) => (
+                <button
+                  type="button"
+                  key={d.id}
+                  onClick={() => setDestinoId(d.id)}
+                  className="flex items-center justify-between rounded-xl border px-3 py-2 text-sm"
+                  style={destinoId === d.id ? { borderColor: d.cor, color: d.cor } : { borderColor: "#1F3552", color: "#F7F5F099" }}
+                >
+                  {d.nome}
+                  <span className="tabular">{formatarMoeda(d.patrimonio)}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {erro && <p className="mb-3 text-sm text-danger">{erro}</p>}
+
+        <div className="flex gap-2">
+          <button type="button" onClick={onClose} className="flex-1 rounded-xl border border-navy-700 py-3 text-sm text-cream-100/70">
+            Cancelar
+          </button>
+          <button type="submit" className="btn-gold flex-1" disabled={salvando || destinos.length === 0}>
+            {salvando ? "Migrando..." : "Confirmar migração"}
           </button>
         </div>
       </form>

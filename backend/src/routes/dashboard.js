@@ -3,6 +3,7 @@ const prisma = require('../lib/prisma');
 const { autenticar, exigirRole } = require('../middleware/auth');
 const { somarMeses, mesAtual, compararMeses, listarMeses, diferencaEmMeses } = require('../utils/mes');
 const { JANELAS, janelaValida, limitesJanela, projetarLancamentoNaJanela } = require('../utils/projecao');
+const { valorAcumuladoAporte } = require('../utils/patrimonio');
 const { asyncHandler } = require('../utils/asyncHandler');
 
 const router = express.Router();
@@ -29,16 +30,12 @@ router.get('/', asyncHandler(async (req, res) => {
   ]);
 
   const grupoPorInstancia = new Map(instancias.map((i) => [i.id, i.grupo]));
-  const instanciasPorId = new Map(instancias.map((i) => [i.id, i]));
 
   const [inicioJanela, fimJanela] = limitesJanela(ref, janela);
 
   const receitaPeriodo = totalPorGrupo(lancamentos, grupoPorInstancia, 'receita', inicioJanela, fimJanela);
   const despesaLancamentos = totalPorGrupo(lancamentos, grupoPorInstancia, 'gasto', inicioJanela, fimJanela);
-
-  const aportesPeriodo = investimentos
-    .filter((f) => f.valor > 0 && compararMeses(mesDoFluxo(f.criadoEm), inicioJanela) >= 0 && compararMeses(mesDoFluxo(f.criadoEm), fimJanela) <= 0)
-    .reduce((acc, f) => acc + f.valor, 0);
+  const aportesPeriodo = totalPorGrupo(lancamentos, grupoPorInstancia, 'investimento', inicioJanela, fimJanela);
 
   const despesaPeriodo = despesaLancamentos + aportesPeriodo;
   const saldoPeriodo = receitaPeriodo - despesaPeriodo;
@@ -48,7 +45,9 @@ router.get('/', asyncHandler(async (req, res) => {
   // Evolucao mensal dentro da janela (mes a mes, a partir do mes de referencia)
   const evolucaoMensal = listarMeses(ref, mesesJanela).map((mes) => {
     const receita = totalPorGrupo(lancamentos, grupoPorInstancia, 'receita', mes, mes);
-    const gasto = totalPorGrupo(lancamentos, grupoPorInstancia, 'gasto', mes, mes);
+    const gasto =
+      totalPorGrupo(lancamentos, grupoPorInstancia, 'gasto', mes, mes) +
+      totalPorGrupo(lancamentos, grupoPorInstancia, 'investimento', mes, mes);
     return {
       mes,
       receita,
@@ -74,7 +73,9 @@ router.get('/', asyncHandler(async (req, res) => {
     const totalMesesHistorico = diferencaEmMeses(inicioHistorico, mesReferenciaAtual) + 1;
     acumulado = listarMeses(inicioHistorico, totalMesesHistorico).map((mes) => {
       const receita = totalPorGrupo(lancamentos, grupoPorInstancia, 'receita', mes, mes);
-      const gasto = totalPorGrupo(lancamentos, grupoPorInstancia, 'gasto', mes, mes);
+      const gasto =
+        totalPorGrupo(lancamentos, grupoPorInstancia, 'gasto', mes, mes) +
+        totalPorGrupo(lancamentos, grupoPorInstancia, 'investimento', mes, mes);
       return { mes, folga: receita - gasto };
     });
   }
@@ -88,7 +89,9 @@ router.get('/', asyncHandler(async (req, res) => {
   const proximoMes = somarMeses(mesReferenciaAtual, 1);
   const projecao = listarMeses(proximoMes, mesesJanela).map((mes) => {
     const receita = totalPorGrupo(lancamentos, grupoPorInstancia, 'receita', mes, mes);
-    const gasto = totalPorGrupo(lancamentos, grupoPorInstancia, 'gasto', mes, mes);
+    const gasto =
+      totalPorGrupo(lancamentos, grupoPorInstancia, 'gasto', mes, mes) +
+      totalPorGrupo(lancamentos, grupoPorInstancia, 'investimento', mes, mes);
     return { mes, folga: receita - gasto };
   });
   let saldoProjetado = totalHistorico;
@@ -111,16 +114,36 @@ router.get('/', asyncHandler(async (req, res) => {
     .filter((i) => i.total > 0)
     .sort((a, b) => b.total - a.total);
 
-  // Patrimonio investido (bloco a parte, nao se mistura ao saldo do fluxo)
-  const patrimonioInvestido = investimentos.reduce((acc, f) => acc + f.valor, 0);
+  // Patrimonio (aportes ja decorridos + resgates), dividido em Reserva Pessoal e Patrimonial.
+  const lancamentosPorInstancia = new Map();
+  for (const l of lancamentos) {
+    if (!lancamentosPorInstancia.has(l.instanciaId)) lancamentosPorInstancia.set(l.instanciaId, []);
+    lancamentosPorInstancia.get(l.instanciaId).push(l);
+  }
+  const investimentosPorInstancia = new Map();
+  for (const f of investimentos) {
+    if (!investimentosPorInstancia.has(f.instanciaId)) investimentosPorInstancia.set(f.instanciaId, []);
+    investimentosPorInstancia.get(f.instanciaId).push(f);
+  }
+
   const contasInvestimento = instancias
-    .filter((i) => i.grupo === 'investimento')
-    .map((i) => ({
-      id: i.id,
-      nome: i.nome,
-      cor: i.cor,
-      patrimonio: investimentos.filter((f) => f.instanciaId === i.id).reduce((acc, f) => acc + f.valor, 0),
-    }));
+    .filter((i) => i.grupo === 'investimento' && i.ativa)
+    .map((i) => {
+      const aportes = lancamentosPorInstancia.get(i.id) || [];
+      const resgates = investimentosPorInstancia.get(i.id) || [];
+      const patrimonio =
+        aportes.reduce((acc, a) => acc + valorAcumuladoAporte(a), 0) +
+        resgates.reduce((acc, r) => acc + r.valor, 0);
+      return { id: i.id, nome: i.nome, cor: i.cor, subgrupo: i.subgrupo, patrimonio };
+    });
+
+  const patrimonioPessoal = contasInvestimento
+    .filter((c) => c.subgrupo === 'pessoal')
+    .reduce((acc, c) => acc + c.patrimonio, 0);
+  const patrimonioPatrimonial = contasInvestimento
+    .filter((c) => c.subgrupo === 'patrimonial')
+    .reduce((acc, c) => acc + c.patrimonio, 0);
+  const patrimonioInvestido = patrimonioPessoal + patrimonioPatrimonial;
 
   return res.json({
     janela,
@@ -136,15 +159,12 @@ router.get('/', asyncHandler(async (req, res) => {
     totalHistorico,
     impactoPorInstancia,
     patrimonioInvestido,
+    patrimonioPessoal,
+    patrimonioPatrimonial,
     contasInvestimento,
     totalInstancias: instancias.length,
     totalLancamentos: lancamentos.length,
   });
 }));
-
-function mesDoFluxo(data) {
-  const d = new Date(data);
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
-}
 
 module.exports = router;

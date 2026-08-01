@@ -32,12 +32,14 @@ export type Voucher = {
 };
 
 export type Grupo = "gasto" | "receita" | "investimento";
+export type Subgrupo = "pessoal" | "patrimonial";
 
 export type Instancia = {
   id: string;
   usuarioId: string;
   nome: string;
   grupo: Grupo;
+  subgrupo: Subgrupo | null;
   cor: string;
   ativa: boolean;
   criadoEm: string;
@@ -92,7 +94,7 @@ export type Pagamento = {
   criadoEm: string;
 };
 
-export type Investimento = {
+export type Resgate = {
   id: string;
   usuarioId: string;
   instanciaId: string;
@@ -102,9 +104,16 @@ export type Investimento = {
   criadoEm: string;
 };
 
+export type Aporte = Lancamento & {
+  acumulado: number;
+  metaBatida: boolean;
+};
+
 export type ContaInvestimento = Instancia & {
-  fluxos: Investimento[];
+  aportes: Aporte[];
+  resgates: Resgate[];
   patrimonio: number;
+  metaBatida: boolean;
 };
 
 export type PontoEvolucaoMensal = {
@@ -131,7 +140,9 @@ export type DashboardData = {
   totalHistorico: number;
   impactoPorInstancia: { id: string; nome: string; cor: string; total: number }[];
   patrimonioInvestido: number;
-  contasInvestimento: { id: string; nome: string; cor: string; patrimonio: number }[];
+  patrimonioPessoal: number;
+  patrimonioPatrimonial: number;
+  contasInvestimento: { id: string; nome: string; cor: string; subgrupo: Subgrupo; patrimonio: number }[];
   totalInstancias: number;
   totalLancamentos: number;
 };

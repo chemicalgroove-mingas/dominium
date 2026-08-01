@@ -8,19 +8,31 @@ const router = express.Router();
 router.use(autenticar, exigirRole('USER'));
 
 const GRUPOS = ['gasto', 'receita', 'investimento'];
+const SUBGRUPOS = ['pessoal', 'patrimonial'];
 
-const instanciaSchema = z.object({
+const instanciaObjeto = z.object({
   nome: z.string().trim().min(1, 'Informe um nome.'),
   grupo: z.enum(GRUPOS),
+  subgrupo: z.enum(SUBGRUPOS).nullable().optional(),
   cor: z.string().trim().min(1),
 });
 
+const instanciaSchema = instanciaObjeto
+  .refine((d) => d.grupo !== 'investimento' || SUBGRUPOS.includes(d.subgrupo), {
+    message: 'Informe se e Reserva Pessoal ou Reserva Patrimonial.',
+    path: ['subgrupo'],
+  })
+  .transform((d) => ({ ...d, subgrupo: d.grupo === 'investimento' ? d.subgrupo : null }));
+
+const instanciaSchemaEdicao = instanciaObjeto.partial();
+
 router.get('/', asyncHandler(async (req, res) => {
-  const { grupo, ativas } = req.query;
+  const { grupo, subgrupo, ativas } = req.query;
   const instancias = await prisma.instancia.findMany({
     where: {
       usuarioId: req.usuario.id,
       ...(grupo ? { grupo: String(grupo) } : {}),
+      ...(subgrupo ? { subgrupo: String(subgrupo) } : {}),
       ...(ativas === 'true' ? { ativa: true } : {}),
     },
     orderBy: { criadoEm: 'asc' },
@@ -39,7 +51,7 @@ router.post('/', asyncHandler(async (req, res) => {
 }));
 
 router.put('/:id', asyncHandler(async (req, res) => {
-  const parsed = instanciaSchema.partial().safeParse(req.body);
+  const parsed = instanciaSchemaEdicao.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ erro: parsed.error.issues[0].message });
 
   const instancia = await prisma.instancia.findFirst({

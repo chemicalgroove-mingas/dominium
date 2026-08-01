@@ -45,13 +45,14 @@ model Voucher {
   observacao  String?
 }
 
-// grupo: gasto | receita | investimento
+// grupo: gasto | receita | investimento — subgrupo (so quando grupo=investimento): pessoal | patrimonial
 model Instancia {
   id        String   @id @default(uuid())
   usuarioId String
   usuario   Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
   nome      String
   grupo     String
+  subgrupo  String?
   cor       String
   ativa     Boolean  @default(true)
   criadoEm  DateTime @default(now())
