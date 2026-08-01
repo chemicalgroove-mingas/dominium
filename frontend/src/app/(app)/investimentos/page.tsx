@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Check, Pencil, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Check, Palette, Pencil, Plus, Trash2 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { useInstancias } from "@/contexts/InstanciasContext";
 import { CampoMoeda } from "@/components/dominium/CampoMoeda";
@@ -15,6 +15,7 @@ import type { Aporte, ContaInvestimento, Instancia, Subgrupo, TipoLancamento } f
 
 const LABEL_SUBGRUPO: Record<Subgrupo, string> = { pessoal: "Reserva Pessoal", patrimonial: "Reserva Patrimonial" };
 const COR_SUGERIDA: Record<Subgrupo, string> = { pessoal: "#B368E0", patrimonial: "#4CAF7D" };
+const PALETA_INSTANCIA_CURTA = PALETA_INSTANCIA.slice(0, 7);
 
 const FORM_VAZIO = {
   descricao: "",
@@ -268,7 +269,7 @@ export default function InvestimentosPage() {
                     className="shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium"
                     style={{ borderColor: conta.cor, color: conta.cor }}
                   >
-                    {conta.aportes.some((a) => a.valorMeta != null) ? "Lançar Valor Extra" : "Lançar valor"}
+                    Lançar Valor Extra
                   </button>
                 </div>
 
@@ -853,7 +854,8 @@ function ModalProjeto({
 }) {
   const [nome, setNome] = useState(conta?.nome ?? "");
   const [cor, setCor] = useState(conta?.cor ?? COR_SUGERIDA[subgrupo]);
-  const [tipo, setTipo] = useState<TipoLancamento>(aporte?.tipo ?? "fixo");
+  const corPersonalizada = !PALETA_INSTANCIA_CURTA.includes(cor);
+  const [tipo, setTipo] = useState<TipoLancamento>(aporte?.tipo ?? "temporario");
   const [mesInicio, setMesInicio] = useState(aporte?.mesInicio ?? mesAtual());
   const [observacoes, setObservacoes] = useState(aporte?.observacoes ?? "");
   const [erro, setErro] = useState("");
@@ -993,16 +995,34 @@ function ModalProjeto({
 
         <div className="mb-4">
           <label className="mb-2 block text-sm text-cream-100/80">Cor</label>
-          <div className="flex flex-wrap gap-2">
-            {PALETA_INSTANCIA.map((c) => (
+          <div className="flex gap-2">
+            {PALETA_INSTANCIA_CURTA.map((c) => (
               <button
                 type="button"
                 key={c}
                 onClick={() => setCor(c)}
-                className="h-8 w-8 rounded-full border-2"
+                className="h-8 w-8 shrink-0 rounded-full border-2"
                 style={{ background: c, borderColor: cor === c ? "#F7F5F0" : "transparent" }}
               />
             ))}
+            <div className="relative h-8 w-8 shrink-0">
+              <input
+                type="color"
+                value={corPersonalizada ? cor : "#c9a24b"}
+                onChange={(e) => setCor(e.target.value)}
+                className="absolute inset-0 h-8 w-8 cursor-pointer opacity-0"
+                aria-label="Escolher cor personalizada"
+              />
+              <div
+                className="pointer-events-none flex h-8 w-8 items-center justify-center rounded-full border-2"
+                style={{
+                  background: corPersonalizada ? cor : "var(--dominium-navy-900)",
+                  borderColor: corPersonalizada ? "#F7F5F0" : "var(--dominium-navy-700)",
+                }}
+              >
+                {!corPersonalizada && <Palette size={14} className="text-cream-100/60" />}
+              </div>
+            </div>
           </div>
         </div>
 
