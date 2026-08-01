@@ -585,6 +585,11 @@ function ListaValores({
                     +{formatarMoeda(a.valorAbatido)} em valor extra já lançado
                   </p>
                 )}
+                {a.valorAbatido < 0 && (
+                  <p className="tabular text-xs font-medium text-danger">
+                    -{formatarMoeda(Math.abs(a.valorAbatido))} a recuperar nas próximas parcelas
+                  </p>
+                )}
               </>
             )}
           </div>
@@ -1088,7 +1093,7 @@ function ModalAtualizarValor({
   const valorNumerico = centavosParaNumero(valorCentavos);
   const diferenca = valorNumerico - conta.patrimonio;
   const temMeta = conta.aportes.some((a) => a.tipo === "temporario" && a.valorMeta != null);
-  const viraAbatimento = diferenca > 0 && temMeta;
+  const viraAbatimento = temMeta;
 
   async function salvar(e: React.FormEvent) {
     e.preventDefault();
@@ -1124,7 +1129,9 @@ function ModalAtualizarValor({
         {Math.abs(diferenca) >= 0.005 && (
           <p className={`mb-4 text-xs ${diferenca > 0 ? "text-success" : "text-danger"}`}>
             {viraAbatimento
-              ? `Diferença de ${formatarMoeda(diferenca)} vai abater as parcelas finais da meta, acelerando o objetivo.`
+              ? diferenca > 0
+                ? `Diferença de ${formatarMoeda(diferenca)} vai abater as parcelas finais da meta, acelerando o objetivo.`
+                : `Diferença de ${formatarMoeda(Math.abs(diferenca))} vai aumentar a última parcela da meta.`
               : diferenca > 0
                 ? `Diferença de ${formatarMoeda(diferenca)} será lançada como um valor de rendimento.`
                 : `Diferença de ${formatarMoeda(diferenca)} será lançada como um resgate de ajuste.`}

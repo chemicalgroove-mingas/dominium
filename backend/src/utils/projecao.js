@@ -12,9 +12,10 @@ function limitesJanela(mesReferencia, janela) {
   return [mesReferencia, somarMeses(mesReferencia, meses - 1)];
 }
 
-// Valor nominal de cada parcela (1..parcelas) de um lancamento temporario, com o
-// abatimento antecipado (valorAbatido) consumindo as parcelas do fim pra tras —
-// usado por projetos de reserva com meta quando o usuario "Lanca valor" no projeto.
+// Valor nominal de cada parcela (1..parcelas) de um lancamento temporario, ajustado
+// pelo abatimento antecipado (valorAbatido) — usado por projetos de reserva com meta:
+// positivo (rendimento/valor extra) consome as parcelas do fim pra tras, diminuindo-as
+// em cascata; negativo (perda) soma o deficit na ultima parcela, aumentando-a.
 function valoresPorParcela(lancamento) {
   const n = lancamento.parcelas || 1;
   const parcelas = [];
@@ -24,12 +25,20 @@ function valoresPorParcela(lancamento) {
     parcelas.push({ mes: somarMeses(lancamento.mesInicio, i), valor });
   }
 
-  let abatido = lancamento.valorAbatido || 0;
-  for (let i = n - 1; i >= 0 && abatido > 0.001; i -= 1) {
-    const reduz = Math.min(parcelas[i].valor, abatido);
-    parcelas[i].valor = Math.round((parcelas[i].valor - reduz) * 100) / 100;
-    abatido = Math.round((abatido - reduz) * 100) / 100;
+  const ajuste = lancamento.valorAbatido || 0;
+
+  if (ajuste > 0) {
+    let abatido = ajuste;
+    for (let i = n - 1; i >= 0 && abatido > 0.001; i -= 1) {
+      const reduz = Math.min(parcelas[i].valor, abatido);
+      parcelas[i].valor = Math.round((parcelas[i].valor - reduz) * 100) / 100;
+      abatido = Math.round((abatido - reduz) * 100) / 100;
+    }
+  } else if (ajuste < 0) {
+    const ultima = parcelas[n - 1];
+    ultima.valor = Math.round((ultima.valor - ajuste) * 100) / 100;
   }
+
   return parcelas;
 }
 
