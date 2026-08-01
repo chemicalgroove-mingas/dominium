@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Check, Palette, Pencil, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Check, Palette, Pencil, Plus, Trash2, X } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { useInstancias } from "@/contexts/InstanciasContext";
 import { CampoMoeda } from "@/components/dominium/CampoMoeda";
@@ -420,11 +420,12 @@ export default function InvestimentosPage() {
               )}
 
               <div>
-                <label className="mb-1 block text-sm text-cream-100/80">Observações (opcional)</label>
+                <label className="mb-1 block text-sm text-cream-100/80">Onde vai guardar esse valor (opcional)?</label>
                 <input
                   className="input-dominium"
                   value={form.observacoes}
                   onChange={(e) => setForm({ ...form, observacoes: e.target.value })}
+                  placeholder="Ex: Caixinha, cofrinho..."
                 />
               </div>
 
@@ -986,9 +987,19 @@ function ModalProjeto({
         onSubmit={salvar}
         className="card-dominium max-h-[90vh] w-full max-w-sm overflow-y-auto rounded-b-none p-5 sm:rounded-b-2xl"
       >
-        <h2 className="mb-4 font-brand text-lg text-cream-100">
-          {modo === "criar" ? `Novo Projeto — ${LABEL_SUBGRUPO[subgrupo]}` : "Editar Projeto"}
-        </h2>
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="font-brand text-lg text-cream-100">
+            {modo === "criar" ? `Novo Projeto — ${LABEL_SUBGRUPO[subgrupo]}` : "Editar Projeto"}
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Fechar"
+            className="p-1 text-cream-100/50 hover:text-cream-100"
+          >
+            <X size={18} />
+          </button>
+        </div>
 
         <div className="mb-4">
           <label className="mb-1 block text-sm text-cream-100/80">Nome do projeto</label>
@@ -1141,12 +1152,12 @@ function ModalProjeto({
         </div>
 
         <div className="mb-5">
-          <label className="mb-1 block text-sm text-cream-100/80">Observações (opcional)</label>
+          <label className="mb-1 block text-sm text-cream-100/80">Onde vai guardar esse valor (opcional)?</label>
           <input
             className="input-dominium"
             value={observacoes}
             onChange={(e) => setObservacoes(e.target.value)}
-            placeholder="Onde você vai guardar esse valor? Ex: Caixinha, Cofrinho, Embaixo do colchão..."
+            placeholder="Ex: Caixinha, cofrinho..."
           />
         </div>
 

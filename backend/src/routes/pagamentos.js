@@ -174,13 +174,15 @@ router.post('/selecionados', asyncHandler(async (req, res) => {
   return res.status(201).json({ pagamentos });
 }));
 
+// "Outro valor" agora se aplica a fatura inteira da instancia (todos os itens em
+// aberto na referencia), nao a um lancamento isolado — o cenario real e nao
+// conseguir pagar a fatura do cartao inteira, nao uma compra especifica.
 router.post('/outro-valor', asyncHandler(async (req, res) => {
   const schema = z.object({
     instanciaId: z.string().min(1),
     mesReferencia: mesSchema,
-    lancamentoId: z.string().min(1),
     valor: z.number().positive('Informe um valor maior que zero.'),
-    descricao: z.string().trim().min(1).default('Multa/Juros'),
+    descricao: z.string().trim().min(1).default('Ajuste'),
     confirmarDuplicado: z.boolean().optional(),
   });
   const parsed = schema.safeParse(req.body);
@@ -191,49 +193,57 @@ router.post('/outro-valor', asyncHandler(async (req, res) => {
   });
   if (!instancia) return res.status(404).json({ erro: 'Instancia nao encontrada.' });
 
-  const lancamento = await prisma.lancamento.findFirst({
-    where: { id: parsed.data.lancamentoId, instanciaId: instancia.id, usuarioId: req.usuario.id },
-  });
-  if (!lancamento) return res.status(404).json({ erro: 'Lancamento nao encontrado.' });
+  const itens = itensEmAberto(await itensDaInstancia(instancia, parsed.data.mesReferencia));
+  if (itens.length === 0) return res.status(400).json({ erro: 'Nao ha debitos em aberto nesta referencia.' });
 
   const avisoDuplicidade = await verificarDuplicidade(
-    [lancamento.id],
+    itens.map((i) => i.lancamentoId),
     parsed.data.mesReferencia,
     parsed.data.confirmarDuplicado
   );
   if (avisoDuplicidade) return res.status(409).json({ erro: avisoDuplicidade, precisaConfirmar: true });
 
-  const devido = lancamento.valor;
+  const devido = Math.round(itens.reduce((acc, i) => acc + i.valor, 0) * 100) / 100;
   const { valor, descricao, mesReferencia } = parsed.data;
 
   const resultado = await prisma.$transaction(async (tx) => {
     if (Math.abs(valor - devido) < EPS) {
-      const pagamento = await tx.pagamento.create({
-        data: {
-          usuarioId: req.usuario.id,
-          instanciaId: instancia.id,
-          lancamentoId: lancamento.id,
-          mesReferencia,
-          valorPago: valor,
-          tipo: 'total',
-          observacoes: descricao,
-        },
-      });
-      return { ramo: 'igual', pagamento };
+      const pagamentos = [];
+      for (const item of itens) {
+        pagamentos.push(
+          await tx.pagamento.create({
+            data: {
+              usuarioId: req.usuario.id,
+              instanciaId: instancia.id,
+              lancamentoId: item.lancamentoId,
+              mesReferencia,
+              valorPago: item.valor,
+              tipo: 'total',
+              observacoes: descricao,
+            },
+          })
+        );
+      }
+      return { ramo: 'igual', pagamentos };
     }
 
     if (valor > devido) {
-      const pagamento = await tx.pagamento.create({
-        data: {
-          usuarioId: req.usuario.id,
-          instanciaId: instancia.id,
-          lancamentoId: lancamento.id,
-          mesReferencia,
-          valorPago: devido,
-          tipo: 'total',
-        },
-      });
-      const excedente = valor - devido;
+      const pagamentos = [];
+      for (const item of itens) {
+        pagamentos.push(
+          await tx.pagamento.create({
+            data: {
+              usuarioId: req.usuario.id,
+              instanciaId: instancia.id,
+              lancamentoId: item.lancamentoId,
+              mesReferencia,
+              valorPago: item.valor,
+              tipo: 'total',
+            },
+          })
+        );
+      }
+      const excedente = Math.round((valor - devido) * 100) / 100;
       const lancamentoAvulso = await tx.lancamento.create({
         data: {
           usuarioId: req.usuario.id,
@@ -244,7 +254,7 @@ router.post('/outro-valor', asyncHandler(async (req, res) => {
           parcelas: 1,
           mesInicio: mesReferencia,
           mesFim: mesReferencia,
-          criadoPorPagamentoId: pagamento.id,
+          criadoPorPagamentoId: pagamentos[0].id,
         },
       });
       const pagamentoAvulso = await tx.pagamento.create({
@@ -258,38 +268,65 @@ router.post('/outro-valor', asyncHandler(async (req, res) => {
           observacoes: descricao,
         },
       });
-      return { ramo: 'excedente', pagamento, lancamentoAvulso, pagamentoAvulso };
+      return { ramo: 'excedente', pagamentos, lancamentoAvulso, pagamentoAvulso };
     }
 
-    // valor < devido: quita parcial e gera pendencia no mes seguinte
-    const pagamento = await tx.pagamento.create({
-      data: {
-        usuarioId: req.usuario.id,
-        instanciaId: instancia.id,
-        lancamentoId: lancamento.id,
-        mesReferencia,
-        valorPago: valor,
-        tipo: 'parcial',
-        observacoes: descricao,
-      },
-    });
-    const diferenca = devido - valor;
-    const mesSeguinte = somarMeses(mesReferencia, 1);
-    const pendencia = await tx.lancamento.create({
-      data: {
-        usuarioId: req.usuario.id,
-        instanciaId: instancia.id,
-        descricao: `Pendência: ${lancamento.descricao}`,
-        valor: diferenca,
-        tipo: 'temporario',
-        parcelas: 1,
-        mesInicio: mesSeguinte,
-        mesFim: mesSeguinte,
-        observacoes: 'Gerado automaticamente por pagamento parcial.',
-        criadoPorPagamentoId: pagamento.id,
-      },
-    });
-    return { ramo: 'parcial', pagamento, pendencia };
+    // valor < devido: paga os itens inteiros, em ordem, ate o dinheiro acabar.
+    // O item em que o dinheiro estoura fica parcial e gera pendencia no mes
+    // seguinte (igual ao caso de um item so); os itens seguintes ficam em
+    // aberto, sem nenhum pagamento criado, disponiveis pra quitar depois.
+    let restante = valor;
+    const pagamentos = [];
+    let pendencia = null;
+    for (const item of itens) {
+      if (restante <= EPS) break;
+      if (restante + EPS >= item.valor) {
+        pagamentos.push(
+          await tx.pagamento.create({
+            data: {
+              usuarioId: req.usuario.id,
+              instanciaId: instancia.id,
+              lancamentoId: item.lancamentoId,
+              mesReferencia,
+              valorPago: item.valor,
+              tipo: 'total',
+            },
+          })
+        );
+        restante = Math.round((restante - item.valor) * 100) / 100;
+      } else {
+        const pagamentoParcial = await tx.pagamento.create({
+          data: {
+            usuarioId: req.usuario.id,
+            instanciaId: instancia.id,
+            lancamentoId: item.lancamentoId,
+            mesReferencia,
+            valorPago: restante,
+            tipo: 'parcial',
+            observacoes: descricao,
+          },
+        });
+        pagamentos.push(pagamentoParcial);
+        const diferenca = Math.round((item.valor - restante) * 100) / 100;
+        const mesSeguinte = somarMeses(mesReferencia, 1);
+        pendencia = await tx.lancamento.create({
+          data: {
+            usuarioId: req.usuario.id,
+            instanciaId: instancia.id,
+            descricao: `Pendência: ${item.descricao}`,
+            valor: diferenca,
+            tipo: 'temporario',
+            parcelas: 1,
+            mesInicio: mesSeguinte,
+            mesFim: mesSeguinte,
+            observacoes: 'Gerado automaticamente por pagamento parcial.',
+            criadoPorPagamentoId: pagamentoParcial.id,
+          },
+        });
+        restante = 0;
+      }
+    }
+    return { ramo: 'parcial', pagamentos, pendencia };
   });
 
   return res.status(201).json(resultado);

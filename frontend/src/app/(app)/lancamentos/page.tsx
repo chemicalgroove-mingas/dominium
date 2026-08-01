@@ -8,9 +8,11 @@ import { useRecorte } from "@/contexts/RecorteContext";
 import { JanelaSelector } from "@/components/dominium/JanelaSelector";
 import { ResumoDashboard } from "@/components/dominium/ResumoDashboard";
 import { CampoMoeda } from "@/components/dominium/CampoMoeda";
+import { CampoMes } from "@/components/dominium/CampoMes";
+import { CampoPrazoMeses } from "@/components/dominium/CampoPrazoMeses";
 import { SeletorMesReferencia } from "@/components/dominium/SeletorMesReferencia";
 import { formatarMoeda } from "@/lib/format";
-import { diferencaEmMeses, formatarMesLabel, somarMeses } from "@/lib/mes";
+import { formatarMesLabel, somarMeses } from "@/lib/mes";
 import { centavosParaNumero, numeroParaCentavos } from "@/lib/moeda";
 import { PALETA_INSTANCIA, COR_SUGERIDA_POR_GRUPO } from "@/lib/cores";
 import type { DashboardData, Grupo, Instancia, Lancamento, TipoLancamento } from "@/lib/types";
@@ -20,7 +22,7 @@ const FORM_VAZIO = {
   valorCentavos: 0,
   tipo: "fixo" as TipoLancamento,
   mesInicio: "",
-  mesFim: "",
+  prazoMeses: "" as number | "",
   observacoes: "",
 };
 
@@ -99,7 +101,7 @@ export default function LancamentosPage() {
   function abrirFoco(instancia: Instancia) {
     setInstanciaFoco(instancia);
     setLancamentoEditando(null);
-    setForm({ ...FORM_VAZIO, mesInicio: mesReferencia, mesFim: mesReferencia });
+    setForm({ ...FORM_VAZIO, mesInicio: mesReferencia });
     setErroForm("");
     setEstado("foco");
   }
@@ -112,20 +114,14 @@ export default function LancamentosPage() {
       valorCentavos: numeroParaCentavos(lancamento.valor),
       tipo: lancamento.tipo,
       mesInicio: lancamento.mesInicio,
-      mesFim:
-        lancamento.tipo === "temporario"
-          ? lancamento.mesFim || somarMeses(lancamento.mesInicio, (lancamento.parcelas || 1) - 1)
-          : "",
+      prazoMeses: lancamento.tipo === "temporario" ? lancamento.parcelas ?? "" : "",
       observacoes: lancamento.observacoes || "",
     });
     setErroForm("");
     setEstado("foco");
   }
 
-  const parcelasCalculadas =
-    form.tipo === "temporario" && form.mesInicio && form.mesFim
-      ? diferencaEmMeses(form.mesInicio, form.mesFim) + 1
-      : null;
+  const parcelasCalculadas = form.tipo === "temporario" && form.prazoMeses ? form.prazoMeses : null;
 
   function voltarParaGeral() {
     setEstado("geral");
@@ -168,7 +164,7 @@ export default function LancamentosPage() {
       return;
     }
     if (form.tipo === "temporario" && (!parcelasCalculadas || parcelasCalculadas < 1)) {
-      setErroForm("Mês fim precisa ser igual ou posterior ao mês início.");
+      setErroForm("Informe o prazo em meses.");
       return;
     }
 
@@ -327,9 +323,7 @@ export default function LancamentosPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() =>
-                    setForm({ ...form, tipo: "temporario", mesFim: form.mesFim || form.mesInicio })
-                  }
+                  onClick={() => setForm({ ...form, tipo: "temporario" })}
                   className={`min-h-[44px] rounded-xl border text-sm ${
                     form.tipo === "temporario"
                       ? "border-gold-500 text-gold-300"
@@ -341,38 +335,26 @@ export default function LancamentosPage() {
               </div>
 
               <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="mb-1 block text-sm text-cream-100/80">Mês início</label>
-                  <input
-                    className="input-dominium"
-                    type="month"
-                    value={form.mesInicio}
-                    onChange={(e) => setForm({ ...form, mesInicio: e.target.value })}
-                    required
-                  />
-                </div>
-                {form.tipo === "temporario" && (
-                  <div>
-                    <label className="mb-1 block text-sm text-cream-100/80">Mês fim</label>
-                    <input
-                      className="input-dominium"
-                      type="month"
-                      value={form.mesFim}
-                      min={form.mesInicio}
-                      onChange={(e) => setForm({ ...form, mesFim: e.target.value })}
-                      required
-                    />
-                  </div>
-                )}
+                <CampoMes
+                  label="Mês início"
+                  value={form.mesInicio}
+                  onChange={(v) => setForm({ ...form, mesInicio: v })}
+                />
+                <CampoPrazoMeses
+                  label="Prazo (meses)"
+                  value={form.prazoMeses}
+                  onChange={(v) => setForm({ ...form, prazoMeses: v })}
+                  disabled={form.tipo === "fixo"}
+                />
               </div>
 
               {form.tipo === "temporario" && (
                 <p className="-mt-2 text-xs text-cream-100/50">
                   {parcelasCalculadas && parcelasCalculadas >= 1
-                    ? `${parcelasCalculadas} parcela${parcelasCalculadas === 1 ? "" : "s"} calculada${
-                        parcelasCalculadas === 1 ? "" : "s"
-                      } automaticamente.`
-                    : "Mês fim precisa ser igual ou posterior ao mês início."}
+                    ? `${parcelasCalculadas} parcela${parcelasCalculadas === 1 ? "" : "s"} · termina em ${formatarMesLabel(
+                        somarMeses(form.mesInicio, parcelasCalculadas - 1)
+                      )}.`
+                    : "Informe o prazo em meses."}
                 </p>
               )}
 

@@ -7,7 +7,7 @@ import { formatarMoeda } from "@/lib/format";
 import { formatarMesLabel, mesAtual, somarMeses } from "@/lib/mes";
 import { centavosParaNumero, numeroParaCentavos } from "@/lib/moeda";
 import { CampoMoeda } from "@/components/dominium/CampoMoeda";
-import type { InstanciaEmAberto, ItemEmAberto } from "@/lib/types";
+import type { InstanciaEmAberto } from "@/lib/types";
 
 type RespostaEmAberto = {
   mesReferencia: string;
@@ -24,7 +24,7 @@ export default function PagamentosPage() {
   const [instanciaSelecionando, setInstanciaSelecionando] = useState<string | null>(null);
   const [selecionados, setSelecionados] = useState<string[]>([]);
 
-  const [outroValor, setOutroValor] = useState<{ instanciaId: string; item: ItemEmAberto } | null>(null);
+  const [outroValor, setOutroValor] = useState<InstanciaEmAberto | null>(null);
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -175,12 +175,6 @@ export default function PagamentosPage() {
                       )}
                       <span className="flex-1 truncate text-cream-100/80">{item.descricao}</span>
                       <span className="tabular text-cream-100/70">{formatarMoeda(item.valor)}</span>
-                      <button
-                        onClick={() => setOutroValor({ instanciaId: instancia.id, item })}
-                        className="text-xs text-gold-300 hover:text-gold-500"
-                      >
-                        Outro valor
-                      </button>
                     </div>
                   )
                 )}
@@ -191,33 +185,41 @@ export default function PagamentosPage() {
                   <Check size={14} /> Tudo pago nesta referência
                 </p>
               ) : (
-              <div className="flex gap-2">
-                <button
-                  onClick={() => pagarTotal(instancia.id)}
-                  className="btn-gold flex-1 py-2 text-sm"
-                >
-                  Pagar Total
-                </button>
-                {instanciaSelecionando === instancia.id ? (
+                <>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => pagarTotal(instancia.id)}
+                      className="btn-gold flex-1 py-2 text-sm"
+                    >
+                      Pagar Total
+                    </button>
+                    {instanciaSelecionando === instancia.id ? (
+                      <button
+                        onClick={() => pagarSelecionados(instancia.id)}
+                        disabled={selecionados.length === 0}
+                        className="flex-1 rounded-xl border border-gold-500 py-2 text-sm text-gold-300 disabled:opacity-40"
+                      >
+                        Pagar marcados ({selecionados.length})
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          setInstanciaSelecionando(instancia.id);
+                          setSelecionados([]);
+                        }}
+                        className="flex-1 rounded-xl border border-navy-700 py-2 text-sm text-cream-100/70"
+                      >
+                        Selecionar
+                      </button>
+                    )}
+                  </div>
                   <button
-                    onClick={() => pagarSelecionados(instancia.id)}
-                    disabled={selecionados.length === 0}
-                    className="flex-1 rounded-xl border border-gold-500 py-2 text-sm text-gold-300 disabled:opacity-40"
+                    onClick={() => setOutroValor(instancia)}
+                    className="mt-2 w-full text-center text-xs text-gold-300 hover:text-gold-500"
                   >
-                    Pagar marcados ({selecionados.length})
+                    Outro valor
                   </button>
-                ) : (
-                  <button
-                    onClick={() => {
-                      setInstanciaSelecionando(instancia.id);
-                      setSelecionados([]);
-                    }}
-                    className="flex-1 rounded-xl border border-navy-700 py-2 text-sm text-cream-100/70"
-                  >
-                    Selecionar
-                  </button>
-                )}
-              </div>
+                </>
               )}
             </div>
           ))}
@@ -225,8 +227,7 @@ export default function PagamentosPage() {
 
       {outroValor && (
         <SubmodalOutroValor
-          instanciaId={outroValor.instanciaId}
-          item={outroValor.item}
+          instancia={outroValor}
           mesReferencia={mesReferencia}
           onClose={() => setOutroValor(null)}
           onSalvo={async () => {
@@ -240,20 +241,18 @@ export default function PagamentosPage() {
 }
 
 function SubmodalOutroValor({
-  instanciaId,
-  item,
+  instancia,
   mesReferencia,
   onClose,
   onSalvo,
 }: {
-  instanciaId: string;
-  item: ItemEmAberto;
+  instancia: InstanciaEmAberto;
   mesReferencia: string;
   onClose: () => void;
   onSalvo: () => void;
 }) {
-  const [valorCentavos, setValorCentavos] = useState(numeroParaCentavos(item.valor));
-  const [descricao, setDescricao] = useState("Multa/Juros");
+  const [valorCentavos, setValorCentavos] = useState(numeroParaCentavos(instancia.totalAberto));
+  const [descricao, setDescricao] = useState("Ajuste");
   const [erro, setErro] = useState("");
   const [salvando, setSalvando] = useState(false);
 
@@ -265,7 +264,7 @@ function SubmodalOutroValor({
       return;
     }
 
-    if (valorNumerico < item.valor && !confirmarDuplicado) {
+    if (valorNumerico < instancia.totalAberto && !confirmarDuplicado) {
       const confirma = confirm(
         "Você está pagando menos que o devido. A diferença vira pendência no próximo mês. Confirmar?"
       );
@@ -275,9 +274,8 @@ function SubmodalOutroValor({
     setSalvando(true);
     try {
       await api.post("/api/pagamentos/outro-valor", {
-        instanciaId,
+        instanciaId: instancia.id,
         mesReferencia,
-        lancamentoId: item.lancamentoId,
         valor: valorNumerico,
         descricao,
         confirmarDuplicado,
@@ -302,7 +300,7 @@ function SubmodalOutroValor({
       <div className="card-dominium w-full max-w-sm rounded-b-none p-5 sm:rounded-b-2xl">
         <h2 className="mb-1 font-brand text-lg text-cream-100">Outro valor</h2>
         <p className="mb-4 text-xs text-cream-100/60">
-          {item.descricao} · devido {formatarMoeda(item.valor)}
+          {instancia.nome} · devido {formatarMoeda(instancia.totalAberto)}
         </p>
 
         <CampoMoeda
