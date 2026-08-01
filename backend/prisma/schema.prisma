@@ -77,6 +77,9 @@ model Lancamento {
   mesFim      String?
   valorMeta          Float?
   valorUltimaParcela Float?
+  // id do Pagamento (nao FK, so bookkeeping) que gerou este lancamento
+  // automaticamente (excedente ou pendencia de "outro valor" em Pagamentos).
+  criadoPorPagamentoId String?
   ativo       Boolean   @default(true)
   observacoes String?
   criadoEm    DateTime  @default(now())

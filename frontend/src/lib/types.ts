@@ -74,6 +74,8 @@ export type ItemEmAberto = {
   descricao: string;
   valor: number;
   tipo: TipoLancamento;
+  pago: boolean;
+  valorPago: number | null;
 };
 
 export type InstanciaEmAberto = {

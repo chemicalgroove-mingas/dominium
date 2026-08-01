@@ -18,7 +18,9 @@ function estaVigente(lancamento, ref) {
   return true;
 }
 
-async function itensEmAbertoDaInstancia(instancia, ref) {
+// Todos os lancamentos vigentes da instancia nesta referencia, com status de
+// pagamento (paga instancias inteiras nao somem mais da tela — ficam marcadas).
+async function itensDaInstancia(instancia, ref) {
   const lancamentos = await prisma.lancamento.findMany({
     where: { instanciaId: instancia.id, usuarioId: instancia.usuarioId },
   });
@@ -26,18 +28,24 @@ async function itensEmAbertoDaInstancia(instancia, ref) {
   const itens = [];
   for (const lancamento of lancamentos) {
     if (!estaVigente(lancamento, ref)) continue;
-    const jaPago = await prisma.pagamento.findFirst({
+    const pagamentos = await prisma.pagamento.findMany({
       where: { lancamentoId: lancamento.id, mesReferencia: ref },
     });
-    if (jaPago) continue;
+    const pago = pagamentos.length > 0;
     itens.push({
       lancamentoId: lancamento.id,
       descricao: lancamento.descricao,
       valor: lancamento.valor,
       tipo: lancamento.tipo,
+      pago,
+      valorPago: pago ? pagamentos.reduce((acc, p) => acc + p.valorPago, 0) : null,
     });
   }
   return itens;
+}
+
+function itensEmAberto(itens) {
+  return itens.filter((i) => !i.pago);
 }
 
 router.get('/em-aberto', asyncHandler(async (req, res) => {
@@ -52,12 +60,13 @@ router.get('/em-aberto', asyncHandler(async (req, res) => {
 
   const resultado = [];
   for (const instancia of instancias) {
-    const itens = await itensEmAbertoDaInstancia(instancia, ref);
+    const itens = await itensDaInstancia(instancia, ref);
+    if (itens.length === 0) continue;
     resultado.push({
       id: instancia.id,
       nome: instancia.nome,
       cor: instancia.cor,
-      totalAberto: itens.reduce((acc, i) => acc + i.valor, 0),
+      totalAberto: itensEmAberto(itens).reduce((acc, i) => acc + i.valor, 0),
       itens,
     });
   }
@@ -93,7 +102,7 @@ router.post('/total', asyncHandler(async (req, res) => {
   });
   if (!instancia) return res.status(404).json({ erro: 'Instancia nao encontrada.' });
 
-  const itens = await itensEmAbertoDaInstancia(instancia, parsed.data.mesReferencia);
+  const itens = itensEmAberto(await itensDaInstancia(instancia, parsed.data.mesReferencia));
   if (itens.length === 0) return res.status(400).json({ erro: 'Nao ha debitos em aberto nesta referencia.' });
 
   const avisoDuplicidade = await verificarDuplicidade(
@@ -135,7 +144,7 @@ router.post('/selecionados', asyncHandler(async (req, res) => {
   });
   if (!instancia) return res.status(404).json({ erro: 'Instancia nao encontrada.' });
 
-  const itensAbertos = await itensEmAbertoDaInstancia(instancia, parsed.data.mesReferencia);
+  const itensAbertos = itensEmAberto(await itensDaInstancia(instancia, parsed.data.mesReferencia));
   const selecionados = itensAbertos.filter((i) => parsed.data.lancamentoIds.includes(i.lancamentoId));
   if (selecionados.length === 0) {
     return res.status(400).json({ erro: 'Os itens selecionados nao estao em aberto nesta referencia.' });
@@ -235,6 +244,7 @@ router.post('/outro-valor', asyncHandler(async (req, res) => {
           parcelas: 1,
           mesInicio: mesReferencia,
           mesFim: mesReferencia,
+          criadoPorPagamentoId: pagamento.id,
         },
       });
       const pagamentoAvulso = await tx.pagamento.create({
@@ -276,12 +286,56 @@ router.post('/outro-valor', asyncHandler(async (req, res) => {
         mesInicio: mesSeguinte,
         mesFim: mesSeguinte,
         observacoes: 'Gerado automaticamente por pagamento parcial.',
+        criadoPorPagamentoId: pagamento.id,
       },
     });
     return { ramo: 'parcial', pagamento, pendencia };
   });
 
   return res.status(201).json(resultado);
+}));
+
+// Apaga, em cadeia, qualquer lancamento avulso/pendencia gerado automaticamente
+// por um dos pagamentos revertidos (e os pagamentos que esses gerados tiverem).
+async function apagarCadeiaGerada(tx, pagamentoIds) {
+  if (pagamentoIds.length === 0) return;
+  const gerados = await tx.lancamento.findMany({ where: { criadoPorPagamentoId: { in: pagamentoIds } } });
+  if (gerados.length === 0) return;
+  const geradosIds = gerados.map((l) => l.id);
+  const pagamentosDosGerados = await tx.pagamento.findMany({ where: { lancamentoId: { in: geradosIds } } });
+  await tx.pagamento.deleteMany({ where: { lancamentoId: { in: geradosIds } } });
+  await tx.lancamento.deleteMany({ where: { id: { in: geradosIds } } });
+  await apagarCadeiaGerada(tx, pagamentosDosGerados.map((p) => p.id));
+}
+
+router.post('/reverter', asyncHandler(async (req, res) => {
+  const schema = z.object({
+    lancamentoId: z.string().min(1),
+    mesReferencia: mesSchema,
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ erro: parsed.error.issues[0].message });
+
+  const lancamento = await prisma.lancamento.findFirst({
+    where: { id: parsed.data.lancamentoId, usuarioId: req.usuario.id },
+  });
+  if (!lancamento) return res.status(404).json({ erro: 'Lancamento nao encontrado.' });
+
+  const pagamentos = await prisma.pagamento.findMany({
+    where: { lancamentoId: lancamento.id, mesReferencia: parsed.data.mesReferencia },
+  });
+  if (pagamentos.length === 0) {
+    return res.status(400).json({ erro: 'Nao ha pagamento registrado nesta referencia.' });
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await apagarCadeiaGerada(tx, pagamentos.map((p) => p.id));
+    await tx.pagamento.deleteMany({
+      where: { lancamentoId: lancamento.id, mesReferencia: parsed.data.mesReferencia },
+    });
+  });
+
+  return res.json({ ok: true });
 }));
 
 module.exports = router;

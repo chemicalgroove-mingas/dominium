@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Check, Undo2 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { formatarMoeda } from "@/lib/format";
 import { formatarMesLabel, mesAtual, somarMeses } from "@/lib/mes";
@@ -83,6 +83,18 @@ export default function PagamentosPage() {
     setSelecionados((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   }
 
+  async function reverterPagamento(lancamentoId: string) {
+    if (
+      !confirm(
+        "Reverter este pagamento? O item volta para \"em aberto\". Se ele gerou um lançamento extra (excedente ou pendência), esse lançamento também será removido."
+      )
+    ) {
+      return;
+    }
+    await api.post("/api/pagamentos/reverter", { lancamentoId, mesReferencia });
+    await carregar();
+  }
+
   return (
     <div className="mx-auto max-w-3xl">
       <h1 className="mb-4 font-brand text-2xl text-cream-100">Pagamentos</h1>
@@ -116,9 +128,9 @@ export default function PagamentosPage() {
         </p>
       )}
 
-      {!carregando && dados && dados.instancias.every((i) => i.itens.length === 0) && (
+      {!carregando && dados && dados.instancias.length === 0 && (
         <div className="card-dominium p-6 text-center text-sm text-cream-100/70">
-          Nenhum débito em aberto nesta referência.
+          Nenhuma cobrança nesta referência.
         </div>
       )}
 
@@ -138,28 +150,47 @@ export default function PagamentosPage() {
               </div>
 
               <div className="mb-3 flex flex-col gap-1">
-                {instancia.itens.map((item) => (
-                  <div key={item.lancamentoId} className="flex items-center gap-2 text-sm">
-                    {instanciaSelecionando === instancia.id && (
-                      <input
-                        type="checkbox"
-                        checked={selecionados.includes(item.lancamentoId)}
-                        onChange={() => toggleSelecionado(item.lancamentoId)}
-                        className="h-4 w-4"
-                      />
-                    )}
-                    <span className="flex-1 truncate text-cream-100/80">{item.descricao}</span>
-                    <span className="tabular text-cream-100/70">{formatarMoeda(item.valor)}</span>
-                    <button
-                      onClick={() => setOutroValor({ instanciaId: instancia.id, item })}
-                      className="text-xs text-gold-300 hover:text-gold-500"
-                    >
-                      Outro valor
-                    </button>
-                  </div>
-                ))}
+                {instancia.itens.map((item) =>
+                  item.pago ? (
+                    <div key={item.lancamentoId} className="flex items-center gap-2 text-sm">
+                      <Check size={14} className="shrink-0 text-success" />
+                      <span className="flex-1 truncate text-cream-100/50 line-through">{item.descricao}</span>
+                      <span className="tabular text-cream-100/40">{formatarMoeda(item.valorPago ?? item.valor)}</span>
+                      <button
+                        onClick={() => reverterPagamento(item.lancamentoId)}
+                        className="flex items-center gap-1 text-xs text-cream-100/50 hover:text-danger"
+                      >
+                        <Undo2 size={12} /> Reverter
+                      </button>
+                    </div>
+                  ) : (
+                    <div key={item.lancamentoId} className="flex items-center gap-2 text-sm">
+                      {instanciaSelecionando === instancia.id && (
+                        <input
+                          type="checkbox"
+                          checked={selecionados.includes(item.lancamentoId)}
+                          onChange={() => toggleSelecionado(item.lancamentoId)}
+                          className="h-4 w-4"
+                        />
+                      )}
+                      <span className="flex-1 truncate text-cream-100/80">{item.descricao}</span>
+                      <span className="tabular text-cream-100/70">{formatarMoeda(item.valor)}</span>
+                      <button
+                        onClick={() => setOutroValor({ instanciaId: instancia.id, item })}
+                        className="text-xs text-gold-300 hover:text-gold-500"
+                      >
+                        Outro valor
+                      </button>
+                    </div>
+                  )
+                )}
               </div>
 
+              {instancia.totalAberto <= 0 ? (
+                <p className="flex items-center justify-center gap-1 rounded-xl border border-success/30 py-2 text-sm text-success">
+                  <Check size={14} /> Tudo pago nesta referência
+                </p>
+              ) : (
               <div className="flex gap-2">
                 <button
                   onClick={() => pagarTotal(instancia.id)}
@@ -187,6 +218,7 @@ export default function PagamentosPage() {
                   </button>
                 )}
               </div>
+              )}
             </div>
           ))}
       </div>
