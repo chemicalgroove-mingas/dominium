@@ -9,24 +9,27 @@ export function CampoPrazoMeses({
   label,
   value,
   onChange,
+  disabled = false,
 }: {
   label?: string;
   value: number | "";
   onChange: (meses: number | "") => void;
+  disabled?: boolean;
 }) {
   const [aberto, setAberto] = useState(false);
 
   return (
     <div className="relative">
       {label && <label className="mb-1 block text-sm text-cream-100/80">{label}</label>}
-      <div className="input-dominium flex items-center gap-2">
+      <div className={`input-dominium flex items-center gap-2 ${disabled ? "opacity-40" : ""}`}>
         <input
           type="number"
           inputMode="numeric"
           min={1}
           placeholder="Ex: 12"
-          className="w-full min-w-0 bg-transparent outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+          className="w-full min-w-0 bg-transparent outline-none disabled:cursor-not-allowed [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
           value={value}
+          disabled={disabled}
           onChange={(e) => {
             const digitado = e.target.value;
             onChange(digitado === "" ? "" : Math.max(1, Number(digitado)));
@@ -34,15 +37,16 @@ export function CampoPrazoMeses({
         />
         <button
           type="button"
-          onClick={() => setAberto((a) => !a)}
+          onClick={() => !disabled && setAberto((a) => !a)}
           aria-label="Escolher prazo comum"
-          className="shrink-0 text-cream-100/70 hover:text-gold-300"
+          disabled={disabled}
+          className="shrink-0 text-cream-100/70 hover:text-gold-300 disabled:cursor-not-allowed"
         >
           <ListPlus size={16} />
         </button>
       </div>
 
-      {aberto && (
+      {aberto && !disabled && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setAberto(false)} />
           <div className="absolute right-0 z-50 mt-1 w-48 rounded-xl border border-navy-700 bg-navy-800 p-2 shadow-lg">

@@ -1027,77 +1027,80 @@ function ModalProjeto({
           </button>
         </div>
 
-        {tipo === "fixo" ? (
-          <div className="mb-4">
-            <CampoMoeda
-              label="Valor da parcela"
-              valorCentavos={valorParcelaCentavos}
-              onChange={setValorParcelaCentavos}
-              required
-            />
-          </div>
-        ) : (
-          <>
-            <div className="mb-4">
-              <CampoMoeda label="Valor da meta" valorCentavos={valorMetaCentavos} onChange={setValorMetaCentavos} required />
-            </div>
+        <div className="mb-4">
+          <CampoMoeda
+            label="Valor da meta"
+            valorCentavos={valorMetaCentavos}
+            onChange={setValorMetaCentavos}
+            disabled={tipo === "fixo"}
+            required={tipo === "temporario"}
+          />
+        </div>
 
-            <div className="mb-3 grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => setModoTemporario("parcela")}
-                className={`min-h-[40px] rounded-xl border text-xs ${
-                  modoTemporario === "parcela" ? "border-gold-500 text-gold-300" : "border-navy-700 text-cream-100/60"
-                }`}
-              >
-                Já sei o valor da parcela
-              </button>
-              <button
-                type="button"
-                onClick={() => setModoTemporario("prazo")}
-                className={`min-h-[40px] rounded-xl border text-xs ${
-                  modoTemporario === "prazo" ? "border-gold-500 text-gold-300" : "border-navy-700 text-cream-100/60"
-                }`}
-              >
-                Já sei o prazo
-              </button>
-            </div>
+        <div className="mb-3 grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            disabled={tipo === "fixo"}
+            onClick={() => setModoTemporario("parcela")}
+            className={`min-h-[40px] rounded-xl border text-xs disabled:opacity-40 ${
+              tipo === "temporario" && modoTemporario === "parcela"
+                ? "border-gold-500 text-gold-300"
+                : "border-navy-700 text-cream-100/60"
+            }`}
+          >
+            Já sei o valor da parcela
+          </button>
+          <button
+            type="button"
+            disabled={tipo === "fixo"}
+            onClick={() => setModoTemporario("prazo")}
+            className={`min-h-[40px] rounded-xl border text-xs disabled:opacity-40 ${
+              tipo === "temporario" && modoTemporario === "prazo"
+                ? "border-gold-500 text-gold-300"
+                : "border-navy-700 text-cream-100/60"
+            }`}
+          >
+            Já sei o prazo
+          </button>
+        </div>
 
-            {modoTemporario === "parcela" && (
-              <div className="mb-2">
-                <CampoMoeda
-                  label="Valor da parcela"
-                  valorCentavos={valorParcelaCentavos}
-                  onChange={setValorParcelaCentavos}
-                  required
-                />
-              </div>
-            )}
-          </>
-        )}
+        <div className="mb-4 grid grid-cols-2 gap-3">
+          <CampoMoeda
+            label="Valor da parcela"
+            valorCentavos={
+              tipo === "fixo"
+                ? valorParcelaCentavos
+                : modoTemporario === "parcela"
+                  ? valorParcelaCentavos
+                  : numeroParaCentavos(plano?.valorParcela ?? 0)
+            }
+            onChange={setValorParcelaCentavos}
+            disabled={tipo === "temporario" && modoTemporario === "prazo"}
+            required={tipo === "fixo" || modoTemporario === "parcela"}
+          />
+          <CampoPrazoMeses
+            label="Prazo (meses)"
+            value={tipo === "temporario" && modoTemporario === "prazo" ? prazoMeses : (plano?.parcelas ?? "")}
+            onChange={setPrazoMeses}
+            disabled={tipo === "fixo" || modoTemporario === "parcela"}
+          />
+        </div>
 
-        {tipo === "temporario" && modoTemporario === "prazo" ? (
-          <div className="mb-4 grid grid-cols-2 gap-3">
-            <CampoPrazoMeses label="Prazo (meses)" value={prazoMeses} onChange={setPrazoMeses} />
-            <CampoMes label="Mês início" value={mesInicio} onChange={setMesInicio} />
-          </div>
-        ) : (
-          <div className="mb-4">
-            <CampoMes label="Mês início" value={mesInicio} onChange={setMesInicio} />
-          </div>
-        )}
+        <div className="mb-4">
+          <CampoMes label="Mês início" value={mesInicio} onChange={setMesInicio} />
+        </div>
 
-        {tipo === "temporario" && (
-          <p className="mb-4 text-xs text-cream-100/50">
-            {plano
+        <p className="mb-4 min-h-[2.5em] text-xs text-cream-100/50">
+          {tipo === "fixo"
+            ? "Aporte automático, sem prazo definido — repete todo mês até você concluir ou pausar o projeto."
+            : plano
               ? `${plano.parcelas} parcela${plano.parcelas === 1 ? "" : "s"} de ${formatarMoeda(plano.valorParcela)}${
                   plano.valorUltima !== plano.valorParcela ? `, última de ${formatarMoeda(plano.valorUltima)}` : ""
                 } · termina em ${formatarMesLabel(somarMeses(mesInicio, plano.parcelas - 1))}.`
               : modoTemporario === "parcela"
                 ? "Informe a meta e o valor da parcela."
                 : "Informe a meta e o prazo em meses."}
-          </p>
-        )}
+        </p>
 
         <div className="mb-5">
           <label className="mb-1 block text-sm text-cream-100/80">Observações (opcional)</label>
