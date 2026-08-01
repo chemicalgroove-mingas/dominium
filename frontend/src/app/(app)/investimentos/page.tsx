@@ -1087,6 +1087,8 @@ function ModalAtualizarValor({
 
   const valorNumerico = centavosParaNumero(valorCentavos);
   const diferenca = valorNumerico - conta.patrimonio;
+  const temMeta = conta.aportes.some((a) => a.tipo === "temporario" && a.valorMeta != null);
+  const viraAbatimento = diferenca > 0 && temMeta;
 
   async function salvar(e: React.FormEvent) {
     e.preventDefault();
@@ -1121,22 +1123,26 @@ function ModalAtualizarValor({
         </div>
         {Math.abs(diferenca) >= 0.005 && (
           <p className={`mb-4 text-xs ${diferenca > 0 ? "text-success" : "text-danger"}`}>
-            {diferenca > 0
-              ? `Diferença de ${formatarMoeda(diferenca)} será lançada como um valor de rendimento.`
-              : `Diferença de ${formatarMoeda(diferenca)} será lançada como um resgate de ajuste.`}
+            {viraAbatimento
+              ? `Diferença de ${formatarMoeda(diferenca)} vai abater as parcelas finais da meta, acelerando o objetivo.`
+              : diferenca > 0
+                ? `Diferença de ${formatarMoeda(diferenca)} será lançada como um valor de rendimento.`
+                : `Diferença de ${formatarMoeda(diferenca)} será lançada como um resgate de ajuste.`}
           </p>
         )}
-        <div className="mb-5">
-          <label className="mb-1 block text-sm text-cream-100/80">
-            Descrição do ajuste {diferenca > 0 ? "(padrão: Rendimento)" : "(padrão: Ajuste)"}
-          </label>
-          <input
-            className="input-dominium"
-            value={descricao}
-            onChange={(e) => setDescricao(e.target.value)}
-            placeholder={diferenca >= 0 ? "Rendimento" : "Ajuste"}
-          />
-        </div>
+        {!viraAbatimento && (
+          <div className="mb-5">
+            <label className="mb-1 block text-sm text-cream-100/80">
+              Descrição do ajuste {diferenca > 0 ? "(padrão: Rendimento)" : "(padrão: Ajuste)"}
+            </label>
+            <input
+              className="input-dominium"
+              value={descricao}
+              onChange={(e) => setDescricao(e.target.value)}
+              placeholder={diferenca >= 0 ? "Rendimento" : "Ajuste"}
+            />
+          </div>
+        )}
         {erro && <p className="mb-3 text-sm text-danger">{erro}</p>}
         <div className="flex gap-2">
           <button type="button" onClick={onClose} className="flex-1 rounded-xl border border-navy-700 py-3 text-sm text-cream-100/70">

@@ -399,6 +399,28 @@ router.post('/:id/atualizar-valor', asyncHandler(async (req, res) => {
   const ref = mesAtual();
 
   if (diferenca > 0) {
+    const aporteMeta = conta.aportes.find((a) => a.tipo === 'temporario' && a.valorMeta != null);
+
+    if (aporteMeta) {
+      // Rendimento abate as parcelas finais da meta, igual "Lancar Valor Extra" —
+      // o objetivo e pagar mais rapido, nao criar um lancamento avulso a parte.
+      const atualizado = await prisma.lancamento.update({
+        where: { id: aporteMeta.id },
+        data: { valorAbatido: { increment: diferenca } },
+      });
+      return res.status(201).json({
+        ajuste: {
+          tipo: 'abatimento',
+          aporte: {
+            ...atualizado,
+            acumulado: valorAcumuladoAporte(atualizado),
+            metaBatida: metaBatida(atualizado),
+          },
+        },
+        patrimonio: conta.patrimonio + diferenca,
+      });
+    }
+
     const aporte = await prisma.lancamento.create({
       data: {
         usuarioId: req.usuario.id,
