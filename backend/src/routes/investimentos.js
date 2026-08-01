@@ -10,6 +10,7 @@ const {
   metaBatida,
   proximaParcelaValor,
   parcelasRestantesComValor,
+  ultimaParcelaEfetiva,
 } = require('../utils/patrimonio');
 
 const router = express.Router();
@@ -38,6 +39,7 @@ async function montarConta(instancia) {
     parcelasDecorridas: parcelasDecorridas(a),
     parcelasRestantesComValor: parcelasRestantesComValor(a),
     proximaParcela: proximaParcelaValor(a),
+    ultimaParcela: ultimaParcelaEfetiva(a),
     metaBatida: metaBatida(a),
   }));
 

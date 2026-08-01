@@ -59,10 +59,20 @@ function parcelasRestantesComValor(lancamento) {
     .filter((p) => p.valor > EPS).length;
 }
 
+// Valor efetivo da ultima parcela do cronograma (mes n), ja considerando o
+// abatimento/rendimento aplicado — diferente de proximaParcelaValor, que e a
+// proxima a vencer (pode ser uma parcela do meio do cronograma).
+function ultimaParcelaEfetiva(lancamento) {
+  if (lancamento.tipo !== 'temporario' || !lancamento.parcelas) return null;
+  const todas = valoresPorParcela(lancamento);
+  return todas[todas.length - 1].valor;
+}
+
 module.exports = {
   valorAcumuladoAporte,
   parcelasDecorridas,
   metaBatida,
   proximaParcelaValor,
   parcelasRestantesComValor,
+  ultimaParcelaEfetiva,
 };

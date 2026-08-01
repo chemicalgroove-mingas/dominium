@@ -99,6 +99,17 @@ export default function InvestimentosPage() {
     setErroForm("");
   }
 
+  // Aportes com meta so podem ser editados pelo formulario com meta/parcelas
+  // (ModalProjeto) — o formulario simples (valor+parcelas direto) quebraria a
+  // invariante de que a soma das parcelas sempre fecha em valorMeta.
+  function abrirEdicaoValor(conta: ContaInvestimento, aporte: Aporte) {
+    if (aporte.valorMeta != null) {
+      setModalProjeto({ modo: "editar", conta, aporte });
+    } else {
+      abrirEdicaoAporte(conta, aporte);
+    }
+  }
+
   const parcelasCalculadas =
     form.tipo === "temporario" && form.mesInicio && form.mesFim
       ? diferencaEmMeses(form.mesInicio, form.mesFim) + 1
@@ -261,7 +272,7 @@ export default function InvestimentosPage() {
 
                 <ListaValores
                   conta={conta}
-                  onEditarValor={(a) => abrirEdicaoAporte(conta, a)}
+                  onEditarValor={(a) => abrirEdicaoValor(conta, a)}
                   onExcluirValor={excluirAporte}
                   onExcluirResgate={excluirResgate}
                   onExcluirValorExtra={excluirValorExtra}
@@ -426,7 +437,7 @@ export default function InvestimentosPage() {
               <div className="lg:max-h-[calc(100vh-14rem)] lg:overflow-y-auto lg:pr-1">
                 <ListaValores
                   conta={contas.find((c) => c.id === contaFoco.id) || contaFoco}
-                  onEditarValor={(a) => abrirEdicaoAporte(contaFoco, a)}
+                  onEditarValor={(a) => abrirEdicaoValor(contaFoco, a)}
                   onExcluirValor={excluirAporte}
                   onExcluirResgate={excluirResgate}
                   onExcluirValorExtra={excluirValorExtra}
@@ -491,7 +502,7 @@ export default function InvestimentosPage() {
                 onClick={() => {
                   const ultimoAporte = modalOpcoes.aportes.find((a) => a.metaBatida) || modalOpcoes.aportes[0];
                   setModalOpcoes(null);
-                  if (ultimoAporte) abrirEdicaoAporte(modalOpcoes, ultimoAporte);
+                  if (ultimoAporte) abrirEdicaoValor(modalOpcoes, ultimoAporte);
                 }}
                 className="rounded-xl border border-navy-700 py-3 text-sm text-cream-100/80"
               >
@@ -579,23 +590,23 @@ function ListaValores({
           <div key={a.id} className="flex items-center gap-3 border-t border-navy-700 pt-2 first:border-t-0 first:pt-0">
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm text-cream-100">
-                {a.descricao} {a.metaBatida && <Check size={12} className="ml-1 inline text-success" />}
+                {a.descricao}{" "}
+                {a.tipo === "temporario" && a.parcelasRestantesComValor != null && (
+                  <span className="text-xs font-normal text-cream-100/50">
+                    ({a.parcelasRestantesComValor}/{a.parcelas} parcelas restantes)
+                  </span>
+                )}{" "}
+                {a.metaBatida && <Check size={12} className="ml-1 inline text-success" />}
               </p>
               {a.tipo === "fixo" ? (
                 <p className="tabular text-xs text-cream-100/60">{formatarMoeda(a.valor)}/mês · FIXO</p>
               ) : (
                 <>
-                  <p className="tabular text-xs text-cream-100/60">
-                    {formatarMoeda(a.valor)}/parcela
-                    {a.proximaParcela != null &&
-                      Math.abs(a.proximaParcela - a.valor) > 0.005 &&
-                      ` (próxima ${formatarMoeda(a.proximaParcela)})`}{" "}
-                    ·{" "}
-                    {a.parcelasRestantesComValor ?? Math.max((a.parcelas || 0) - a.parcelasDecorridas, 0)}/
-                    {a.parcelas} restantes · juntado{" "}
-                    {formatarMoeda(a.acumulado)}
-                    {a.valorMeta != null && ` de ${formatarMoeda(a.valorMeta)}`}
-                  </p>
+                  <div className="tabular text-xs text-cream-100/60">
+                    <p>Valor Parcelas: {formatarMoeda(a.valor)}</p>
+                    {a.ultimaParcela != null && <p>Última Parcela: {formatarMoeda(a.ultimaParcela)}</p>}
+                    {a.valorMeta != null && <p>Valor da Meta: {formatarMoeda(a.valorMeta)}</p>}
+                  </div>
                   {a.valorRendimento !== 0 && (
                     <p className={`tabular text-xs font-medium ${a.valorRendimento > 0 ? "text-success" : "text-danger"}`}>
                       Rendimento acumulado: {a.valorRendimento > 0 ? "+" : "-"}

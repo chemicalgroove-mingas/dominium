@@ -124,6 +124,7 @@ export type Aporte = Lancamento & {
   parcelasDecorridas: number;
   parcelasRestantesComValor: number | null;
   proximaParcela: number | null;
+  ultimaParcela: number | null;
   metaBatida: boolean;
 };
 
