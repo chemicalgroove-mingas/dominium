@@ -16,6 +16,11 @@ const usuariosAdminRouter = require('./src/routes/usuariosAdmin');
 const app = express();
 const PORT = process.env.PORT || 5001;
 
+// A Vercel (e outros PaaS) fica na frente como proxy reverso e manda X-Forwarded-For.
+// Sem isso, o express-rate-limit lanca ValidationError ao tentar resolver o IP do
+// cliente, travando a resposta ate o timeout da function em vez de responder rapido.
+app.set('trust proxy', 1);
+
 app.use(
   cors({
     origin: process.env.FRONTEND_URL || 'http://localhost:5000',
