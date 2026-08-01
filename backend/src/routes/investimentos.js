@@ -4,7 +4,7 @@ const prisma = require('../lib/prisma');
 const { autenticar, exigirRole } = require('../middleware/auth');
 const { asyncHandler } = require('../utils/asyncHandler');
 const { mesAtual, somarMeses, parseMes } = require('../utils/mes');
-const { valorAcumuladoAporte, metaBatida } = require('../utils/patrimonio');
+const { valorAcumuladoAporte, parcelasDecorridas, metaBatida } = require('../utils/patrimonio');
 
 const router = express.Router();
 router.use(autenticar, exigirRole('USER'));
@@ -25,6 +25,7 @@ async function montarConta(instancia) {
   const aportesComMeta = aportes.map((a) => ({
     ...a,
     acumulado: valorAcumuladoAporte(a),
+    parcelasDecorridas: parcelasDecorridas(a),
     metaBatida: metaBatida(a),
   }));
 
@@ -156,23 +157,72 @@ router.delete('/aporte/:id', asyncHandler(async (req, res) => {
   return res.json({ ok: true });
 }));
 
-const projetoCriarSchema = z.object({
+const projetoBaseSchema = z.object({
   subgrupo: z.enum(SUBGRUPOS),
   nome: z.string().trim().min(1, 'Informe o nome do projeto.'),
   cor: z.string().trim().min(1, 'Informe uma cor.'),
-  valor: z.number().positive('O valor precisa ser maior que zero.'),
   tipo: z.enum(['fixo', 'temporario']),
-  parcelas: z.number().int().min(1).nullable().optional(),
+  valor: z.number().positive().optional(),
+  valorMeta: z.number().positive().optional(),
+  prazoMeses: z.number().int().min(1).optional(),
   mesInicio: z.string().regex(/^\d{4}-\d{2}$/, 'Use o formato AAAA-MM.'),
   observacoes: z.string().trim().optional().nullable(),
 });
 
+const projetoEditarSchema = projetoBaseSchema.extend({ aporteId: z.string().min(1) });
+
+// Fixo: so exige o valor da parcela (indefinido, sem meta). Temporario: exige a meta
+// e exatamente um entre valor da parcela OU prazo em meses (o outro e calculado).
+function validarProjeto(dados) {
+  if (dados.tipo === 'fixo') {
+    if (!dados.valor || dados.valor <= 0) return 'Informe o valor da parcela.';
+    if (dados.valorMeta || dados.prazoMeses) return 'Projetos fixos nao tem meta ou prazo definido.';
+    return null;
+  }
+  if (!dados.valorMeta || dados.valorMeta <= 0) return 'Informe o valor da meta.';
+  const temValor = Boolean(dados.valor);
+  const temPrazo = Boolean(dados.prazoMeses);
+  if (temValor === temPrazo) return 'Informe o valor da parcela OU o prazo em meses (nao os dois).';
+  return null;
+}
+
+// Calcula o plano de parcelas de um projeto temporario a partir da meta e de um dos
+// dois parametros (valor da parcela ou prazo). A ultima parcela absorve o resto da
+// divisao, podendo ficar menor que as demais.
+function calcularPlanoTemporario({ valorMeta, valor, prazoMeses }) {
+  const parcelas = valor ? Math.ceil(valorMeta / valor) : prazoMeses;
+  const valorParcela = valor || Math.floor((valorMeta / parcelas) * 100) / 100;
+  const ultimaBruta = Math.round((valorMeta - valorParcela * (parcelas - 1)) * 100) / 100;
+  const valorUltimaParcela = Math.abs(ultimaBruta - valorParcela) < EPS ? null : ultimaBruta;
+  return { parcelas, valorParcela, valorUltimaParcela };
+}
+
+function montarDadosAporte(dados) {
+  if (dados.tipo === 'fixo') {
+    return {
+      valor: dados.valor,
+      parcelas: null,
+      mesFim: null,
+      valorMeta: null,
+      valorUltimaParcela: null,
+    };
+  }
+  const plano = calcularPlanoTemporario(dados);
+  return {
+    valor: plano.valorParcela,
+    parcelas: plano.parcelas,
+    mesFim: somarMeses(dados.mesInicio, plano.parcelas - 1),
+    valorMeta: dados.valorMeta,
+    valorUltimaParcela: plano.valorUltimaParcela,
+  };
+}
+
 router.post('/projeto', asyncHandler(async (req, res) => {
-  const parsed = projetoCriarSchema.safeParse(req.body);
+  const parsed = projetoBaseSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ erro: parsed.error.issues[0].message });
 
-  const erroParcelas = validarParcelasPorTipo(parsed.data);
-  if (erroParcelas) return res.status(400).json({ erro: erroParcelas });
+  const erroProjeto = validarProjeto(parsed.data);
+  if (erroProjeto) return res.status(400).json({ erro: erroProjeto });
 
   try {
     parseMes(parsed.data.mesInicio);
@@ -180,8 +230,7 @@ router.post('/projeto', asyncHandler(async (req, res) => {
     return res.status(400).json({ erro: 'mesInicio invalido.' });
   }
 
-  const mesFim =
-    parsed.data.tipo === 'temporario' ? somarMeses(parsed.data.mesInicio, parsed.data.parcelas - 1) : null;
+  const dadosAporte = montarDadosAporte(parsed.data);
 
   const resultado = await prisma.$transaction(async (tx) => {
     const instancia = await tx.instancia.create({
@@ -198,12 +247,10 @@ router.post('/projeto', asyncHandler(async (req, res) => {
         usuarioId: req.usuario.id,
         instanciaId: instancia.id,
         descricao: parsed.data.nome,
-        valor: parsed.data.valor,
         tipo: parsed.data.tipo,
-        parcelas: parsed.data.tipo === 'temporario' ? parsed.data.parcelas : null,
         mesInicio: parsed.data.mesInicio,
-        mesFim,
         observacoes: parsed.data.observacoes || null,
+        ...dadosAporte,
       },
     });
     return { instancia, aporte };
@@ -219,23 +266,12 @@ router.post('/projeto', asyncHandler(async (req, res) => {
   });
 }));
 
-const projetoEditarSchema = z.object({
-  aporteId: z.string().min(1),
-  nome: z.string().trim().min(1, 'Informe o nome do projeto.'),
-  cor: z.string().trim().min(1, 'Informe uma cor.'),
-  valor: z.number().positive('O valor precisa ser maior que zero.'),
-  tipo: z.enum(['fixo', 'temporario']),
-  parcelas: z.number().int().min(1).nullable().optional(),
-  mesInicio: z.string().regex(/^\d{4}-\d{2}$/, 'Use o formato AAAA-MM.'),
-  observacoes: z.string().trim().optional().nullable(),
-});
-
 router.put('/projeto/:instanciaId', asyncHandler(async (req, res) => {
   const parsed = projetoEditarSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ erro: parsed.error.issues[0].message });
 
-  const erroParcelas = validarParcelasPorTipo(parsed.data);
-  if (erroParcelas) return res.status(400).json({ erro: erroParcelas });
+  const erroProjeto = validarProjeto(parsed.data);
+  if (erroProjeto) return res.status(400).json({ erro: erroProjeto });
 
   const instancia = await prisma.instancia.findFirst({
     where: { id: req.params.instanciaId, usuarioId: req.usuario.id, grupo: 'investimento' },
@@ -247,8 +283,7 @@ router.put('/projeto/:instanciaId', asyncHandler(async (req, res) => {
   });
   if (!aporte) return res.status(404).json({ erro: 'Aporte nao encontrado.' });
 
-  const mesFim =
-    parsed.data.tipo === 'temporario' ? somarMeses(parsed.data.mesInicio, parsed.data.parcelas - 1) : null;
+  const dadosAporte = montarDadosAporte(parsed.data);
 
   const resultado = await prisma.$transaction(async (tx) => {
     const instanciaAtualizada = await tx.instancia.update({
@@ -259,12 +294,10 @@ router.put('/projeto/:instanciaId', asyncHandler(async (req, res) => {
       where: { id: aporte.id },
       data: {
         descricao: parsed.data.nome,
-        valor: parsed.data.valor,
         tipo: parsed.data.tipo,
-        parcelas: parsed.data.tipo === 'temporario' ? parsed.data.parcelas : null,
         mesInicio: parsed.data.mesInicio,
-        mesFim,
         observacoes: parsed.data.observacoes || null,
+        ...dadosAporte,
       },
     });
     return { instancia: instanciaAtualizada, aporte: aporteAtualizado };

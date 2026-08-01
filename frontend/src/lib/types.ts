@@ -57,6 +57,8 @@ export type Lancamento = {
   parcelas: number | null;
   mesInicio: string;
   mesFim: string | null;
+  valorMeta: number | null;
+  valorUltimaParcela: number | null;
   ativo: boolean;
   observacoes: string | null;
   criadoEm: string;
@@ -106,6 +108,7 @@ export type Resgate = {
 
 export type Aporte = Lancamento & {
   acumulado: number;
+  parcelasDecorridas: number;
   metaBatida: boolean;
 };
 

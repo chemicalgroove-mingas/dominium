@@ -26,6 +26,17 @@ function projetarLancamentoNaJanela(lancamento, janelaInicio, janelaFim) {
   }
 
   const meses = diferencaEmMeses(inicioEfetivo, fimEfetivo) + 1;
+
+  const incluiUltimaParcela =
+    lancamento.tipo === 'temporario' &&
+    lancamento.valorUltimaParcela != null &&
+    lancamento.mesFim &&
+    compararMeses(fimEfetivo, lancamento.mesFim) === 0;
+
+  if (incluiUltimaParcela) {
+    return { meses, total: (meses - 1) * lancamento.valor + lancamento.valorUltimaParcela };
+  }
+
   return { meses, total: meses * lancamento.valor };
 }
 

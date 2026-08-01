@@ -6,7 +6,7 @@ import { api, ApiError } from "@/lib/api";
 import { useInstancias } from "@/contexts/InstanciasContext";
 import { CampoMoeda } from "@/components/dominium/CampoMoeda";
 import { formatarMoeda } from "@/lib/format";
-import { diferencaEmMeses, mesAtual, somarMeses } from "@/lib/mes";
+import { diferencaEmMeses, formatarMesLabel, mesAtual, somarMeses } from "@/lib/mes";
 import { centavosParaNumero, numeroParaCentavos } from "@/lib/moeda";
 import { PALETA_INSTANCIA } from "@/lib/cores";
 import type { Aporte, ContaInvestimento, Instancia, Subgrupo, TipoLancamento } from "@/lib/types";
@@ -400,8 +400,11 @@ export default function InvestimentosPage() {
                         <p className="tabular text-xs text-cream-100/60">{formatarMoeda(a.valor)}/mês · FIXO</p>
                       ) : (
                         <p className="tabular text-xs text-cream-100/60">
-                          {formatarMoeda(a.valor)}/parcela · {a.restantes}/{a.parcelas} restantes · juntado{" "}
+                          {formatarMoeda(a.valor)}/parcela
+                          {a.valorUltimaParcela != null && ` (última ${formatarMoeda(a.valorUltimaParcela)})`} ·{" "}
+                          {Math.max((a.parcelas || 0) - a.parcelasDecorridas, 0)}/{a.parcelas} restantes · juntado{" "}
                           {formatarMoeda(a.acumulado)}
+                          {a.valorMeta != null && ` de ${formatarMoeda(a.valorMeta)}`}
                         </p>
                       )}
                     </div>
@@ -711,65 +714,110 @@ function ModalProjeto({
 }) {
   const [nome, setNome] = useState(conta?.nome ?? "");
   const [cor, setCor] = useState(conta?.cor ?? COR_SUGERIDA[subgrupo]);
-  const [valorCentavos, setValorCentavos] = useState(aporte ? numeroParaCentavos(aporte.valor) : 0);
   const [tipo, setTipo] = useState<TipoLancamento>(aporte?.tipo ?? "fixo");
   const [mesInicio, setMesInicio] = useState(aporte?.mesInicio ?? mesAtual());
-  const [mesFim, setMesFim] = useState(
-    aporte?.tipo === "temporario" ? aporte.mesFim || somarMeses(aporte.mesInicio, (aporte.parcelas || 1) - 1) : ""
-  );
   const [observacoes, setObservacoes] = useState(aporte?.observacoes ?? "");
   const [erro, setErro] = useState("");
   const [salvando, setSalvando] = useState(false);
 
-  const parcelasCalculadas =
-    tipo === "temporario" && mesInicio && mesFim ? diferencaEmMeses(mesInicio, mesFim) + 1 : null;
+  // Fixo (parcela indefinida) e o modo "parcela" do temporario compartilham o
+  // mesmo campo de valor de parcela.
+  const [valorParcelaCentavos, setValorParcelaCentavos] = useState(aporte ? numeroParaCentavos(aporte.valor) : 0);
+
+  const metaInicial =
+    aporte?.tipo === "temporario"
+      ? aporte.valorMeta ?? aporte.valor * (aporte.parcelas || 1)
+      : 0;
+  const [valorMetaCentavos, setValorMetaCentavos] = useState(numeroParaCentavos(metaInicial));
+  const [modoTemporario, setModoTemporario] = useState<"parcela" | "prazo">("parcela");
+  const [prazoMeses, setPrazoMeses] = useState(aporte?.parcelas ?? 1);
+
+  const valorMetaNumerico = centavosParaNumero(valorMetaCentavos);
+  const valorParcelaNumerico = centavosParaNumero(valorParcelaCentavos);
+
+  const plano =
+    tipo === "temporario" && valorMetaNumerico > 0
+      ? modoTemporario === "parcela"
+        ? valorParcelaNumerico > 0
+          ? (() => {
+              const parcelas = Math.ceil(valorMetaNumerico / valorParcelaNumerico);
+              const ultimaBruta =
+                Math.round((valorMetaNumerico - valorParcelaNumerico * (parcelas - 1)) * 100) / 100;
+              return {
+                parcelas,
+                valorParcela: valorParcelaNumerico,
+                valorUltima: Math.abs(ultimaBruta - valorParcelaNumerico) < 0.005 ? valorParcelaNumerico : ultimaBruta,
+              };
+            })()
+          : null
+        : prazoMeses >= 1
+          ? (() => {
+              const valorBase = Math.floor((valorMetaNumerico / prazoMeses) * 100) / 100;
+              const ultimaBruta = Math.round((valorMetaNumerico - valorBase * (prazoMeses - 1)) * 100) / 100;
+              return {
+                parcelas: prazoMeses,
+                valorParcela: valorBase,
+                valorUltima: Math.abs(ultimaBruta - valorBase) < 0.005 ? valorBase : ultimaBruta,
+              };
+            })()
+          : null
+      : null;
 
   async function salvar(e: React.FormEvent) {
     e.preventDefault();
     setErro("");
 
-    const valorNumerico = centavosParaNumero(valorCentavos);
-    if (!valorNumerico || valorNumerico <= 0) {
-      setErro("Informe um valor maior que zero.");
-      return;
+    if (tipo === "fixo") {
+      if (!valorParcelaNumerico || valorParcelaNumerico <= 0) {
+        setErro("Informe um valor maior que zero.");
+        return;
+      }
+    } else {
+      if (!valorMetaNumerico || valorMetaNumerico <= 0) {
+        setErro("Informe o valor da meta.");
+        return;
+      }
+      if (!plano) {
+        setErro(
+          modoTemporario === "parcela"
+            ? "Informe o valor da parcela."
+            : "Informe o prazo em meses."
+        );
+        return;
+      }
     }
-    if (tipo === "temporario" && (!parcelasCalculadas || parcelasCalculadas < 1)) {
-      setErro("Mês fim precisa ser igual ou posterior ao mês início.");
-      return;
-    }
+
+    const camposTemporario =
+      tipo === "temporario"
+        ? modoTemporario === "parcela"
+          ? { valorMeta: valorMetaNumerico, valor: valorParcelaNumerico }
+          : { valorMeta: valorMetaNumerico, prazoMeses }
+        : {};
+
+    const payload = {
+      subgrupo,
+      nome,
+      cor,
+      tipo,
+      ...(tipo === "fixo" ? { valor: valorParcelaNumerico } : camposTemporario),
+      mesInicio,
+      observacoes: observacoes || null,
+    };
 
     setSalvando(true);
     try {
       if (modo === "criar") {
-        await api.post("/api/investimentos/projeto", {
-          subgrupo,
-          nome,
-          cor,
-          valor: valorNumerico,
-          tipo,
-          parcelas: tipo === "temporario" ? parcelasCalculadas : null,
-          mesInicio,
-          observacoes: observacoes || null,
-        });
+        await api.post("/api/investimentos/projeto", payload);
       } else if (aporte) {
-        await api.put(`/api/investimentos/projeto/${conta!.id}`, {
-          aporteId: aporte.id,
-          nome,
-          cor,
-          valor: valorNumerico,
-          tipo,
-          parcelas: tipo === "temporario" ? parcelasCalculadas : null,
-          mesInicio,
-          observacoes: observacoes || null,
-        });
+        await api.put(`/api/investimentos/projeto/${conta!.id}`, { ...payload, aporteId: aporte.id });
       } else {
         await api.put(`/api/instancias/${conta!.id}`, { nome, cor });
         await api.post("/api/investimentos/aporte", {
           instanciaId: conta!.id,
           descricao: nome,
-          valor: valorNumerico,
+          valor: tipo === "fixo" ? valorParcelaNumerico : plano!.valorParcela,
           tipo,
-          parcelas: tipo === "temporario" ? parcelasCalculadas : null,
+          parcelas: tipo === "temporario" ? plano!.parcelas : null,
           mesInicio,
           observacoes: observacoes || null,
         });
@@ -819,10 +867,6 @@ function ModalProjeto({
           </div>
         </div>
 
-        <div className="mb-4">
-          <CampoMoeda label="Valor da parcela" valorCentavos={valorCentavos} onChange={setValorCentavos} required />
-        </div>
-
         <div className="mb-4 grid grid-cols-2 gap-2">
           <button
             type="button"
@@ -835,10 +879,7 @@ function ModalProjeto({
           </button>
           <button
             type="button"
-            onClick={() => {
-              setTipo("temporario");
-              setMesFim(mesFim || mesInicio);
-            }}
+            onClick={() => setTipo("temporario")}
             className={`min-h-[44px] rounded-xl border text-sm ${
               tipo === "temporario" ? "border-gold-500 text-gold-300" : "border-navy-700 text-cream-100/60"
             }`}
@@ -847,39 +888,87 @@ function ModalProjeto({
           </button>
         </div>
 
-        <div className="mb-2 grid grid-cols-2 gap-3">
-          <div>
-            <label className="mb-1 block text-sm text-cream-100/80">Mês início</label>
-            <input
-              className="input-dominium"
-              type="month"
-              value={mesInicio}
-              onChange={(e) => setMesInicio(e.target.value)}
+        {tipo === "fixo" ? (
+          <div className="mb-4">
+            <CampoMoeda
+              label="Valor da parcela"
+              valorCentavos={valorParcelaCentavos}
+              onChange={setValorParcelaCentavos}
               required
             />
           </div>
-          {tipo === "temporario" && (
-            <div>
-              <label className="mb-1 block text-sm text-cream-100/80">Mês fim</label>
-              <input
-                className="input-dominium"
-                type="month"
-                value={mesFim}
-                min={mesInicio}
-                onChange={(e) => setMesFim(e.target.value)}
-                required
-              />
+        ) : (
+          <>
+            <div className="mb-4">
+              <CampoMoeda label="Valor da meta" valorCentavos={valorMetaCentavos} onChange={setValorMetaCentavos} required />
             </div>
-          )}
+
+            <div className="mb-3 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setModoTemporario("parcela")}
+                className={`min-h-[40px] rounded-xl border text-xs ${
+                  modoTemporario === "parcela" ? "border-gold-500 text-gold-300" : "border-navy-700 text-cream-100/60"
+                }`}
+              >
+                Já sei o valor da parcela
+              </button>
+              <button
+                type="button"
+                onClick={() => setModoTemporario("prazo")}
+                className={`min-h-[40px] rounded-xl border text-xs ${
+                  modoTemporario === "prazo" ? "border-gold-500 text-gold-300" : "border-navy-700 text-cream-100/60"
+                }`}
+              >
+                Já sei o prazo
+              </button>
+            </div>
+
+            <div className="mb-2">
+              {modoTemporario === "parcela" ? (
+                <CampoMoeda
+                  label="Valor da parcela"
+                  valorCentavos={valorParcelaCentavos}
+                  onChange={setValorParcelaCentavos}
+                  required
+                />
+              ) : (
+                <div>
+                  <label className="mb-1 block text-sm text-cream-100/80">Prazo (meses)</label>
+                  <input
+                    className="input-dominium"
+                    type="number"
+                    min={1}
+                    value={prazoMeses}
+                    onChange={(e) => setPrazoMeses(Math.max(1, Number(e.target.value) || 1))}
+                    required
+                  />
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        <div className="mb-4">
+          <label className="mb-1 block text-sm text-cream-100/80">Mês início</label>
+          <input
+            className="input-dominium"
+            type="month"
+            value={mesInicio}
+            onChange={(e) => setMesInicio(e.target.value)}
+            required
+          />
         </div>
 
         {tipo === "temporario" && (
           <p className="mb-4 text-xs text-cream-100/50">
-            {parcelasCalculadas && parcelasCalculadas >= 1
-              ? `${parcelasCalculadas} parcela${parcelasCalculadas === 1 ? "" : "s"} calculada${
-                  parcelasCalculadas === 1 ? "" : "s"
-                } automaticamente.`
-              : "Mês fim precisa ser igual ou posterior ao mês início."}
+            {plano
+              ? `${plano.parcelas} parcela${plano.parcelas === 1 ? "" : "s"} de ${formatarMoeda(plano.valorParcela)}${
+                  plano.valorUltima !== plano.valorParcela ? `, última de ${formatarMoeda(plano.valorUltima)}` : ""
+                } · termina em ${formatarMesLabel(somarMeses(mesInicio, plano.parcelas - 1))}.`
+              : modoTemporario === "parcela"
+                ? "Informe a meta e o valor da parcela."
+                : "Informe a meta e o prazo em meses."}
           </p>
         )}
 

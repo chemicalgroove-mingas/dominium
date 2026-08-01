@@ -8,6 +8,11 @@ function valorAcumuladoAporte(lancamento) {
   return projetarLancamentoNaJanela(lancamento, lancamento.mesInicio, mesAtual()).total;
 }
 
+// Quantas parcelas ja decorreram (mes de inicio ate o mes atual, limitado ao mesFim).
+function parcelasDecorridas(lancamento) {
+  return projetarLancamentoNaJanela(lancamento, lancamento.mesInicio, mesAtual()).meses;
+}
+
 // Meta batida: so se aplica a aportes temporarios (tem prazo definido). A partir
 // do mes seguinte ao mesFim, a parcela para de ser contada como despesa.
 function metaBatida(lancamento) {
@@ -15,4 +20,4 @@ function metaBatida(lancamento) {
   return compararMeses(mesAtual(), lancamento.mesFim) > 0;
 }
 
-module.exports = { valorAcumuladoAporte, metaBatida };
+module.exports = { valorAcumuladoAporte, parcelasDecorridas, metaBatida };
