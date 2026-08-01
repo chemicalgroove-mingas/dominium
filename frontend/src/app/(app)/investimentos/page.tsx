@@ -251,12 +251,22 @@ export default function InvestimentosPage() {
                 </div>
 
                 <div className="mb-3 flex items-center justify-between gap-3">
-                  <p className="tabular text-lg font-semibold text-cream-100">
-                    {formatarMoeda(conta.patrimonio)}{" "}
-                    <span className="text-xs font-normal text-cream-100/50">
-                      · {conta.aportes.length} valor{conta.aportes.length === 1 ? "" : "es"}
-                    </span>
-                  </p>
+                  <div>
+                    <p className="tabular text-lg font-semibold text-cream-100">
+                      {formatarMoeda(conta.patrimonio)}{" "}
+                      <span className="text-xs font-normal text-cream-100/50">
+                        · {conta.aportes.length} valor{conta.aportes.length === 1 ? "" : "es"}
+                      </span>
+                    </p>
+                    {(() => {
+                      const metaValor = conta.aportes.find((a) => a.valorMeta != null)?.valorMeta;
+                      return (
+                        metaValor != null && (
+                          <p className="tabular text-xs text-cream-100/50">Meta: {formatarMoeda(metaValor)}</p>
+                        )
+                      );
+                    })()}
+                  </div>
                   <button
                     onClick={() => {
                       const aporteMeta = conta.aportes.find((a) => a.valorMeta != null);
