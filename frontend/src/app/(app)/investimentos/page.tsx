@@ -228,12 +228,30 @@ export default function InvestimentosPage() {
                   </button>
                 </div>
 
-                <p className="tabular mb-3 text-lg font-semibold text-cream-100">{formatarMoeda(conta.patrimonio)}</p>
-
-                <div className="flex flex-wrap gap-2">
-                  <button onClick={() => abrirFoco(conta)} className="btn-gold px-3 py-2 text-xs">
-                    Fazer Aporte
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <p className="tabular text-lg font-semibold text-cream-100">
+                    {formatarMoeda(conta.patrimonio)}{" "}
+                    <span className="text-xs font-normal text-cream-100/50">
+                      · {conta.aportes.length} valor{conta.aportes.length === 1 ? "" : "es"}
+                    </span>
+                  </p>
+                  <button
+                    onClick={() => abrirFoco(conta)}
+                    className="shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium"
+                    style={{ borderColor: conta.cor, color: conta.cor }}
+                  >
+                    Lançar valor
                   </button>
+                </div>
+
+                <ListaValores
+                  conta={conta}
+                  onEditarValor={(a) => abrirEdicaoAporte(conta, a)}
+                  onExcluirValor={excluirAporte}
+                  onExcluirResgate={excluirResgate}
+                />
+
+                <div className="mt-3 flex flex-wrap gap-2 border-t border-navy-700 pt-3">
                   <button
                     onClick={() => setModalResgate(conta)}
                     className="rounded-xl border border-danger px-3 py-2 text-xs text-danger"
@@ -262,7 +280,7 @@ export default function InvestimentosPage() {
           {!carregando && contas.length === 0 && (
             <div className="card-dominium mb-4 p-6 text-center text-sm text-cream-100/70">
               Nenhuma conta de {LABEL_SUBGRUPO[subgrupo].toLowerCase()} ainda. Crie uma (ex:{" "}
-              {subgrupo === "pessoal" ? '"Trocar de celular"' : '"Investimento IPCA+"'}) e lance aportes.
+              {subgrupo === "pessoal" ? '"Trocar de celular"' : '"Investimento IPCA+"'}) e lance valores.
             </div>
           )}
 
@@ -298,7 +316,7 @@ export default function InvestimentosPage() {
               </div>
 
               <CampoMoeda
-                label="Valor do aporte"
+                label="Valor"
                 valorCentavos={form.valorCentavos}
                 onChange={(valorCentavos) => setForm({ ...form, valorCentavos })}
                 required
@@ -376,8 +394,8 @@ export default function InvestimentosPage() {
                 {salvando
                   ? "Salvando..."
                   : aporteEditando
-                    ? "Alterar aporte"
-                    : "Fazer Aporte"}
+                    ? "Alterar valor"
+                    : "Lançar valor"}
               </button>
             </form>
 
@@ -389,56 +407,13 @@ export default function InvestimentosPage() {
                 {formatarMoeda(contas.find((c) => c.id === contaFoco.id)?.patrimonio ?? contaFoco.patrimonio)}
               </p>
 
-              <div className="flex flex-col gap-2 lg:max-h-[calc(100vh-14rem)] lg:overflow-y-auto lg:pr-1">
-                {(contas.find((c) => c.id === contaFoco.id)?.aportes || []).map((a) => (
-                  <div key={a.id} className="flex items-center gap-3 border-t border-navy-700 pt-2 first:border-t-0 first:pt-0">
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm text-cream-100">
-                        {a.descricao} {a.metaBatida && <Check size={12} className="ml-1 inline text-success" />}
-                      </p>
-                      {a.tipo === "fixo" ? (
-                        <p className="tabular text-xs text-cream-100/60">{formatarMoeda(a.valor)}/mês · FIXO</p>
-                      ) : (
-                        <p className="tabular text-xs text-cream-100/60">
-                          {formatarMoeda(a.valor)}/parcela
-                          {a.valorUltimaParcela != null && ` (última ${formatarMoeda(a.valorUltimaParcela)})`} ·{" "}
-                          {Math.max((a.parcelas || 0) - a.parcelasDecorridas, 0)}/{a.parcelas} restantes · juntado{" "}
-                          {formatarMoeda(a.acumulado)}
-                          {a.valorMeta != null && ` de ${formatarMoeda(a.valorMeta)}`}
-                        </p>
-                      )}
-                    </div>
-                    <button
-                      onClick={() => abrirEdicaoAporte(contaFoco, a)}
-                      className="p-2 text-cream-100/40 hover:text-gold-300"
-                      aria-label="Editar aporte"
-                    >
-                      <Pencil size={15} />
-                    </button>
-                    <button
-                      onClick={() => excluirAporte(a.id)}
-                      className="p-2 text-cream-100/40 hover:text-danger"
-                      aria-label="Excluir aporte"
-                    >
-                      <Trash2 size={15} />
-                    </button>
-                  </div>
-                ))}
-                {(contas.find((c) => c.id === contaFoco.id)?.resgates || []).map((r) => (
-                  <div key={r.id} className="flex items-center gap-3 border-t border-navy-700 pt-2">
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm text-cream-100">{r.descricao}</p>
-                      <p className="tabular text-xs text-danger">{formatarMoeda(r.valor)} · resgate</p>
-                    </div>
-                    <button
-                      onClick={() => excluirResgate(r.id)}
-                      className="p-2 text-cream-100/40 hover:text-danger"
-                      aria-label="Excluir resgate"
-                    >
-                      <Trash2 size={15} />
-                    </button>
-                  </div>
-                ))}
+              <div className="lg:max-h-[calc(100vh-14rem)] lg:overflow-y-auto lg:pr-1">
+                <ListaValores
+                  conta={contas.find((c) => c.id === contaFoco.id) || contaFoco}
+                  onEditarValor={(a) => abrirEdicaoAporte(contaFoco, a)}
+                  onExcluirValor={excluirAporte}
+                  onExcluirResgate={excluirResgate}
+                />
               </div>
             </div>
           </div>
@@ -463,7 +438,7 @@ export default function InvestimentosPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
           <div className="card-dominium w-full max-w-sm p-5 text-center">
             <p className="mb-4 text-sm text-cream-100">
-              Excluir &quot;{contaParaExcluir.nome}&quot;? Todos os aportes e resgates vinculados serão apagados junto.
+              Excluir &quot;{contaParaExcluir.nome}&quot;? Todos os valores e resgates vinculados serão apagados junto.
             </p>
             <div className="flex gap-2">
               <button onClick={() => setContaParaExcluir(null)} className="flex-1 rounded-xl border border-navy-700 py-3 text-sm text-cream-100/70">
@@ -545,6 +520,76 @@ export default function InvestimentosPage() {
           }}
         />
       )}
+    </div>
+  );
+}
+
+function ListaValores({
+  conta,
+  onEditarValor,
+  onExcluirValor,
+  onExcluirResgate,
+}: {
+  conta: ContaInvestimento;
+  onEditarValor: (a: Aporte) => void;
+  onExcluirValor: (id: string) => void;
+  onExcluirResgate: (id: string) => void;
+}) {
+  if (conta.aportes.length === 0 && conta.resgates.length === 0) {
+    return <p className="py-3 text-center text-sm text-cream-100/50">Sem valores lançados.</p>;
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      {conta.aportes.map((a) => (
+        <div key={a.id} className="flex items-center gap-3 border-t border-navy-700 pt-2 first:border-t-0 first:pt-0">
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm text-cream-100">
+              {a.descricao} {a.metaBatida && <Check size={12} className="ml-1 inline text-success" />}
+            </p>
+            {a.tipo === "fixo" ? (
+              <p className="tabular text-xs text-cream-100/60">{formatarMoeda(a.valor)}/mês · FIXO</p>
+            ) : (
+              <p className="tabular text-xs text-cream-100/60">
+                {formatarMoeda(a.valor)}/parcela
+                {a.valorUltimaParcela != null && ` (última ${formatarMoeda(a.valorUltimaParcela)})`} ·{" "}
+                {Math.max((a.parcelas || 0) - a.parcelasDecorridas, 0)}/{a.parcelas} restantes · juntado{" "}
+                {formatarMoeda(a.acumulado)}
+                {a.valorMeta != null && ` de ${formatarMoeda(a.valorMeta)}`}
+              </p>
+            )}
+          </div>
+          <button
+            onClick={() => onEditarValor(a)}
+            className="p-2 text-cream-100/40 hover:text-gold-300"
+            aria-label="Editar valor"
+          >
+            <Pencil size={15} />
+          </button>
+          <button
+            onClick={() => onExcluirValor(a.id)}
+            className="p-2 text-cream-100/40 hover:text-danger"
+            aria-label="Excluir valor"
+          >
+            <Trash2 size={15} />
+          </button>
+        </div>
+      ))}
+      {conta.resgates.map((r) => (
+        <div key={r.id} className="flex items-center gap-3 border-t border-navy-700 pt-2 first:border-t-0 first:pt-0">
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm text-cream-100">{r.descricao}</p>
+            <p className="tabular text-xs text-danger">{formatarMoeda(r.valor)} · resgate</p>
+          </div>
+          <button
+            onClick={() => onExcluirResgate(r.id)}
+            className="p-2 text-cream-100/40 hover:text-danger"
+            aria-label="Excluir resgate"
+          >
+            <Trash2 size={15} />
+          </button>
+        </div>
+      ))}
     </div>
   );
 }
@@ -1048,7 +1093,7 @@ function ModalAtualizarValor({
         {Math.abs(diferenca) >= 0.005 && (
           <p className={`mb-4 text-xs ${diferenca > 0 ? "text-success" : "text-danger"}`}>
             {diferenca > 0
-              ? `Diferença de ${formatarMoeda(diferenca)} será lançada como um aporte de rendimento.`
+              ? `Diferença de ${formatarMoeda(diferenca)} será lançada como um valor de rendimento.`
               : `Diferença de ${formatarMoeda(diferenca)} será lançada como um resgate de ajuste.`}
           </p>
         )}
