@@ -100,10 +100,19 @@ export default function LancamentosPage() {
           `/api/lancamentos?instanciaId=${instancia.id}&mesReferencia=${mesReferencia}&janela=${janela}`
         );
         const sincronizados: LancamentoLocal[] = data.lancamentos.map((l) => ({ ...l, syncStatus: "synced" }));
+        // Reconciliação pelo id (== uuid gerado no cliente == id definitivo
+        // no servidor, ver enqueuarCriacaoLancamento/backend). Se o servidor
+        // já confirmou, a versão dele manda — nunca mostra as duas
+        // representações juntas. Existe uma janela real entre o POST ser
+        // aceito e a operação sair da outbox (marcarSincronizado) em que
+        // ambas as listas podem conter o mesmo id; dedupe por id resolve
+        // isso sem nunca comparar nome/valor/descrição/data/instância.
+        const idsConfirmados = new Set(sincronizados.map((l) => l.id));
+        const otimistasAindaPendentes = otimistas.filter((o) => !idsConfirmados.has(o.id));
         setGavetas((prev) => ({
           ...prev,
           [instancia.id]: {
-            lancamentos: [...otimistas, ...sincronizados],
+            lancamentos: [...otimistasAindaPendentes, ...sincronizados],
             totalJanela: data.totalJanela,
             carregando: false,
           },

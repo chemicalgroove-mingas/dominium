@@ -6,6 +6,7 @@ import type { Usuario } from "@/lib/types";
 import { limparDadosLocaisDoUsuario, listarNaoConcluidas } from "@/lib/offline/outbox";
 import { cancelarTentativasAgendadas, tentarSincronizar } from "@/lib/offline/syncManager";
 import { lerSessaoLocalValida, limparSessaoLocal, salvarSessaoLocal } from "@/lib/offline/sessaoLocal";
+import { aquecerShellOffline } from "@/lib/offline/shellCache";
 
 type AuthContextValue = {
   usuario: Usuario | null;
@@ -44,6 +45,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // senha/token) — só pra permitir abrir o app shell num cold start
       // offline. Nunca substitui esta checagem real assim que há rede.
       await salvarSessaoLocal(data.usuario);
+      // Best-effort, não bloqueia: garante que /dashboard e /lancamentos
+      // fiquem cacheados com conteúdo autenticado mesmo se o install do SW
+      // tiver acontecido antes do login (sem cookie ainda pra essas rotas).
+      aquecerShellOffline();
     } catch (err) {
       if (err instanceof ApiError) {
         // O servidor respondeu e recusou — sessao realmente invalida (cookie
@@ -90,6 +95,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const data = await api.post<{ usuario: Usuario }>("/api/auth/login", { login: loginValue, senha });
     setUsuario(data.usuario);
     await salvarSessaoLocal(data.usuario);
+    aquecerShellOffline();
     redirecionarAposAutenticar(data.usuario);
   }, []);
 
@@ -98,6 +104,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const data = await api.post<{ usuario: Usuario }>("/api/auth/cadastro", dados);
       setUsuario(data.usuario);
       await salvarSessaoLocal(data.usuario);
+      aquecerShellOffline();
       redirecionarAposAutenticar(data.usuario);
     },
     []

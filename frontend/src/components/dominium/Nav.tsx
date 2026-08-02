@@ -25,7 +25,16 @@ export function BottomNav({ itens = ITENS_FINANCEIRO }: { itens?: ItemNav[] }) {
   return (
     <nav
       className="fixed inset-x-0 bottom-0 z-30 flex border-t border-navy-700 bg-navy-800 sm:hidden"
-      style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+      style={{
+        paddingBottom: "env(safe-area-inset-bottom)",
+        minHeight: "var(--bottom-nav-height)",
+        // iOS Safari em modo standalone pode "descolar" elementos fixed do
+        // rodapé durante scroll com overscroll/rubber-band — força a nav pra
+        // sua própria camada de composição (mitigação padrão desse bug do
+        // WebKit) em vez de deixar o motor recalcular a posição a cada frame.
+        transform: "translateZ(0)",
+        willChange: "transform",
+      }}
     >
       {itens.map(({ href, label, Icon }) => {
         const ativo = pathname.startsWith(href);

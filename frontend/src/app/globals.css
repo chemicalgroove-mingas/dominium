@@ -14,6 +14,11 @@
 
   --background: var(--dominium-navy-900);
   --foreground: var(--dominium-cream-100);
+
+  /* Altura do conteúdo da BottomNav (sem a safe area) — única fonte da
+     verdade, usada tanto pela nav (Nav.tsx) quanto pelo padding inferior do
+     conteúdo rolável (AppLayout), pra nunca ficar dessincronizado. */
+  --bottom-nav-height: 4rem;
 }
 
 @theme inline {
@@ -39,8 +44,15 @@ body {
   color: var(--foreground);
   font-family: var(--font-sans), system-ui, sans-serif;
   -webkit-tap-highlight-color: transparent;
+  /* Só o topo aqui: o header mobile fica em fluxo normal, então empurrar o
+     body inteiro pra baixo do notch funciona bem. O rodapé NÃO leva
+     safe-area no body — o único elemento ancorado embaixo é a BottomNav,
+     que é position:fixed (fora do fluxo, não afetada por padding do body).
+     Duplicar a safe-area inferior no body só inflava a altura rolável do
+     documento sem necessidade, o que contribuía pro "solavanco" da nav
+     durante o scroll no iOS standalone — ver Nav.tsx e --bottom-nav-height
+     acima pra onde a safe area inferior realmente é aplicada. */
   padding-top: env(safe-area-inset-top);
-  padding-bottom: env(safe-area-inset-bottom);
 }
 
 .font-brand {

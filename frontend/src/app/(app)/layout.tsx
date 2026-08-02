@@ -38,7 +38,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     <InstanciasProvider>
       <RecorteProvider>
         <OfflineSyncBootstrap />
-        <div className="flex min-h-screen flex-1">
+        <div className="flex min-h-[100dvh] flex-1">
           <Sidebar />
           <div className="flex flex-1 flex-col">
             <header className="flex items-center justify-between border-b border-navy-700 bg-navy-800 px-4 py-3 sm:hidden">
@@ -50,7 +50,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 </button>
               </div>
             </header>
-            <main className="flex-1 px-4 pb-24 pt-4 sm:px-8 sm:pb-8 sm:pt-8">{children}</main>
+            {/* pb calculado a partir da mesma --bottom-nav-height que a
+                BottomNav usa (Nav.tsx) + a safe area — nunca um chute em
+                pixels desalinhado do tamanho real da nav. */}
+            <main
+              className="flex-1 px-4 pt-4 pb-[calc(var(--bottom-nav-height)+env(safe-area-inset-bottom))] sm:px-8 sm:pb-8 sm:pt-8"
+            >
+              {children}
+            </main>
           </div>
           <BottomNav />
         </div>
