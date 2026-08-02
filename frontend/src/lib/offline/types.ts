@@ -1,4 +1,4 @@
-import type { Instancia, Lancamento, TipoLancamento } from "@/lib/types";
+import type { Instancia, Lancamento, TipoLancamento, Usuario } from "@/lib/types";
 
 export type StatusSincronizacao = "pending" | "syncing" | "synced" | "failed";
 
@@ -28,3 +28,9 @@ export type OperacaoOutbox = {
 export type LancamentoLocal = Lancamento & { syncStatus: StatusSincronizacao };
 
 export type InstanciaCache = Instancia;
+
+// Snapshot não-sensível da última sessão válida (mesmo formato que a API já
+// expõe ao cliente — sem senha, sem token). Usado só pra decidir se o app
+// pode abrir o shell offline num cold start; nunca substitui a checagem real
+// contra o servidor assim que a rede volta.
+export type SessaoLocal = { chave: "atual"; usuario: Usuario; atualizadoEm: number };

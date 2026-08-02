@@ -10,12 +10,21 @@
 // de build (_next/static/*) já ficam automaticamente "frescos" a cada
 // deploy porque o nome do arquivo muda.
 
-const CACHE_VERSION = "v1";
+const CACHE_VERSION = "v2";
 const CACHE_NAME = `dominium-shell-${CACHE_VERSION}`;
 const OFFLINE_URL = "/offline";
 
+// Rotas com HTML pré-renderizado como conteúdo estático (sem dado
+// server-side personalizado — cada uma busca tudo via /api/* no cliente),
+// por isso é seguro pré-cachear: cold start offline abre o app shell
+// correto pra essas rotas em vez de cair direto no fallback /offline.
+// Só cobre o que a Fase 2 promete funcionar offline; outras rotas
+// protegidas continuam sem shell offline garantido.
 const PRECACHE_URLS = [
   OFFLINE_URL,
+  "/login",
+  "/dashboard",
+  "/lancamentos",
   "/manifest.json",
   "/icons/icon-192.png",
   "/icons/icon-512.png",

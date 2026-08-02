@@ -60,10 +60,12 @@ export async function limparOutboxDoUsuario(usuarioId: string) {
 }
 
 // Isolamento entre contas no mesmo aparelho: nada do usuário que saiu deve
-// sobrar pro próximo login (nem a fila, nem o espelho de instâncias).
+// sobrar pro próximo login (nem a fila, nem o espelho de instâncias, nem o
+// snapshot de sessão usado pra abrir o app offline).
 export async function limparDadosLocaisDoUsuario(usuarioId: string) {
-  await db.transaction("rw", db.outbox, db.instanciasCache, async () => {
+  await db.transaction("rw", db.outbox, db.instanciasCache, db.sessaoLocal, async () => {
     await db.outbox.where({ usuarioId }).delete();
     await db.instanciasCache.where({ usuarioId }).delete();
+    await db.sessaoLocal.clear();
   });
 }

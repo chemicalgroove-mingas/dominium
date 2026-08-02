@@ -4,8 +4,10 @@ export default function OfflinePage() {
       <img src="/icons/icon-128.png" alt="DOMINIUM" className="h-16 w-16 rounded-full" />
       <h1 className="font-brand text-2xl text-cream-100">Você está offline</h1>
       <p className="max-w-xs text-sm text-cream-100/60">
-        Reconecte para ver seus dados. O DOMINIUM não guarda saldos e lançamentos para uso offline —
-        preferimos mostrar isso a exibir um valor desatualizado.
+        Este aparelho ainda não tem uma sessão salva pra abrir o DOMINIUM assim. Reconecte para
+        entrar. Depois de logado, saldos e lançamentos confirmados continuam nunca ficando
+        guardados aqui — só a sessão, os agrupadores e os lançamentos que você criar offline até
+        sincronizarem.
       </p>
       <a href="/dashboard" className="btn-gold mt-2 inline-block">
         Tentar novamente
