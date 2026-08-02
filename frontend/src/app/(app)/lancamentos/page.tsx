@@ -16,6 +16,7 @@ import { SeletorMesReferencia } from "@/components/dominium/SeletorMesReferencia
 import { formatarMoeda } from "@/lib/format";
 import { formatarMesLabel, somarMeses } from "@/lib/mes";
 import { centavosParaNumero, numeroParaCentavos } from "@/lib/moeda";
+import { validarValorCentavos } from "@/lib/validacaoLancamento";
 import { PALETA_INSTANCIA, COR_SUGERIDA_POR_GRUPO } from "@/lib/cores";
 import { enqueuarCriacaoLancamento, listarNaoConcluidas } from "@/lib/offline/outbox";
 import { construirLancamentoOtimista } from "@/lib/offline/optimistic";
@@ -242,11 +243,12 @@ export default function LancamentosPage() {
     if (!instanciaFoco) return;
     setErroForm("");
 
-    const valorNumerico = centavosParaNumero(form.valorCentavos);
-    if (!valorNumerico || valorNumerico <= 0) {
-      setErroForm("Informe um valor maior que zero.");
+    const erroValor = validarValorCentavos(form.valorCentavos);
+    if (erroValor) {
+      setErroForm(erroValor);
       return;
     }
+    const valorNumerico = centavosParaNumero(form.valorCentavos);
     if (form.tipo === "temporario" && (!parcelasCalculadas || parcelasCalculadas < 1)) {
       setErroForm("Informe o prazo em meses.");
       return;

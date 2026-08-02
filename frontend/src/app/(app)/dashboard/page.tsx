@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Area, AreaChart, Bar, BarChart, ResponsiveContainer, Tooltip, XAxis } from "recharts";
+import { FileText, Plus } from "lucide-react";
 import { api } from "@/lib/api";
 import { formatarDataHora, formatarMoeda } from "@/lib/format";
 import { formatarMesCurto, formatarMesLabel } from "@/lib/mes";
@@ -9,10 +10,20 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useRecorte } from "@/contexts/RecorteContext";
 import { JanelaSelector } from "@/components/dominium/JanelaSelector";
 import { SeletorMesReferencia } from "@/components/dominium/SeletorMesReferencia";
+import { LancamentoRapidoDrawer } from "@/components/dominium/LancamentoRapidoDrawer";
+import { Toast } from "@/components/dominium/Toast";
+import { entregarArquivo } from "@/lib/compartilharArquivo";
 import { lerSnapshot, salvarSnapshot } from "@/lib/offline/snapshots";
-import type { DashboardData } from "@/lib/types";
+import { useOutboxPendentes } from "@/lib/offline/useOutboxPendentes";
+import type { DashboardData, Janela, RelatorioData } from "@/lib/types";
 
 const SNAPSHOT = "dashboard";
+const LABEL_PERIODO_RELATORIO: Record<Janela, string> = {
+  mes: "1 mês",
+  "3m": "3 meses",
+  "6m": "6 meses",
+  "12m": "12 meses",
+};
 
 export default function DashboardPage() {
   const { usuario } = useAuth();
@@ -22,6 +33,30 @@ export default function DashboardPage() {
   const [deSnapshot, setDeSnapshot] = useState(false);
   const [ultimaAtualizacao, setUltimaAtualizacao] = useState<number | null>(null);
   const redeConfirmouRef = useRef(false);
+  const [drawerAberto, setDrawerAberto] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const [gerandoRelatorio, setGerandoRelatorio] = useState(false);
+  const pendentesUsuario = useOutboxPendentes(usuario?.id);
+  const pendentesAnterioresRef = useRef(0);
+
+  // O PDF so e' montado sob demanda: busca o JSON ja calculado pelo backend
+  // (mesmos agregados + linhas por instancia via parcelasNaJanela) e formata
+  // no cliente, sem recalcular projecao/competencia. Import de
+  // @react-pdf/renderer e' lazy (dentro de gerarRelatorioPdfBlob), so
+  // carregado quando o usuario clica aqui — nao infla o bundle inicial.
+  async function gerarRelatorioPdf() {
+    setGerandoRelatorio(true);
+    try {
+      const dados = await api.get<RelatorioData>(`/api/relatorio?janela=${janela}&mesReferencia=${mesReferencia}`);
+      const { gerarRelatorioPdfBlob } = await import("@/lib/relatorioPdf");
+      const blob = await gerarRelatorioPdfBlob(dados);
+      await entregarArquivo(blob, `relatorio-dominium-${mesReferencia}-${janela}.pdf`, "application/pdf");
+    } catch {
+      setToast("Não foi possível gerar o relatório. Tente novamente.");
+    } finally {
+      setGerandoRelatorio(false);
+    }
+  }
 
   const carregar = useCallback(async () => {
     try {
@@ -53,6 +88,17 @@ export default function DashboardPage() {
   useEffect(() => {
     carregar();
   }, [carregar]);
+
+  // Quando uma operacao pendente da outbox termina de sincronizar (a
+  // contagem cai), busca de novo do servidor pra refletir o Lancamento
+  // Rapido no Dashboard assim que o backend confirmar — mesmo padrao usado
+  // em lancamentos/page.tsx pra reconciliar apos a fila esvaziar.
+  useEffect(() => {
+    if (pendentesUsuario.length < pendentesAnterioresRef.current) {
+      carregar();
+    }
+    pendentesAnterioresRef.current = pendentesUsuario.length;
+  }, [pendentesUsuario.length, carregar]);
 
   useEffect(() => {
     // Pintura instantânea a partir do último snapshot, sem esperar a rede —
@@ -108,6 +154,13 @@ export default function DashboardPage() {
         </div>
         <JanelaSelector />
       </div>
+
+      <button
+        onClick={() => setDrawerAberto(true)}
+        className="btn-gold flex min-h-[52px] w-full items-center justify-center gap-2 text-base"
+      >
+        <Plus size={20} /> Lançamento rápido
+      </button>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div className="card-dominium p-4">
@@ -271,6 +324,28 @@ export default function DashboardPage() {
           );
         })}
       </div>
+
+      <div className="card-dominium p-4">
+        <p className="mb-1 text-sm text-cream-100/70">Relatório do período</p>
+        <p className="mb-3 text-xs text-cream-100/50">
+          {LABEL_PERIODO_RELATORIO[janela]} a partir de {formatarMesLabel(mesReferencia)} — gerado na hora, não
+          fica salvo no Dominium.
+        </p>
+        <button
+          onClick={gerarRelatorioPdf}
+          disabled={gerandoRelatorio}
+          className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl border border-gold-500/60 text-sm text-gold-300 disabled:opacity-50"
+        >
+          <FileText size={16} /> {gerandoRelatorio ? "Gerando PDF..." : "Gerar PDF"}
+        </button>
+      </div>
+
+      <LancamentoRapidoDrawer
+        aberto={drawerAberto}
+        onFechar={() => setDrawerAberto(false)}
+        onToast={setToast}
+      />
+      {toast && <Toast mensagem={toast} onFechar={() => setToast(null)} />}
     </div>
   );
 }
