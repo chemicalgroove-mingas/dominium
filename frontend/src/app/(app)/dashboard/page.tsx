@@ -13,10 +13,19 @@ import type { DashboardData } from "@/lib/types";
 export default function DashboardPage() {
   const { janela, mesReferencia } = useRecorte();
   const [dados, setDados] = useState<DashboardData | null>(null);
+  const [erroCarregar, setErroCarregar] = useState(false);
 
   const carregar = useCallback(async () => {
-    const data = await api.get<DashboardData>(`/api/dashboard?janela=${janela}&mesReferencia=${mesReferencia}`);
-    setDados(data);
+    try {
+      const data = await api.get<DashboardData>(`/api/dashboard?janela=${janela}&mesReferencia=${mesReferencia}`);
+      setDados(data);
+      setErroCarregar(false);
+    } catch {
+      // Offline: o Dashboard é uma das rotas que abrem no cold start (ver
+      // sw.js), mas saldo/dashboard nunca vem de cache — sem rede, mostra um
+      // estado claro em vez de "Carregando..." pra sempre.
+      setErroCarregar(true);
+    }
   }, [janela, mesReferencia]);
 
   useEffect(() => {
@@ -24,6 +33,16 @@ export default function DashboardPage() {
   }, [carregar]);
 
   if (!dados) {
+    if (erroCarregar) {
+      return (
+        <div className="card-dominium mx-auto max-w-xl p-6 text-center text-sm text-cream-100/70">
+          Sem conexão. Reconecte para ver seu dashboard.
+          <button onClick={() => carregar()} className="btn-gold mt-4 block w-full">
+            Tentar novamente
+          </button>
+        </div>
+      );
+    }
     return <p className="text-cream-100/60">Carregando...</p>;
   }
 

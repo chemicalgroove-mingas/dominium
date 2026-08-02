@@ -1,4 +1,4 @@
-// Service worker do DOMINIUM — Fase 1 (somente app shell, instalável).
+// Service worker do DOMINIUM — app shell (Fase 1) + cold start offline (Fase 2).
 //
 // Regra inegociável: nada relacionado a /api/* passa por aqui. Dado
 // financeiro (saldo, lançamento, pagamento) é sempre buscado direto na
@@ -9,24 +9,61 @@
 // Bump CACHE_VERSION quando a lógica deste arquivo mudar; assets com hash
 // de build (_next/static/*) já ficam automaticamente "frescos" a cada
 // deploy porque o nome do arquivo muda.
-
-const CACHE_VERSION = "v1";
+//
+// IMPORTANTE (bug já corrigido uma vez, não reintroduzir): uma rota
+// protegida (ex.: /lancamentos) pedida sem sessão válida é redirecionada
+// pelo proxy pra /login. Se essa resposta REDIRECIONADA for guardada no
+// cache sob a chave da rota original, o Safari se recusa a servir esse
+// Response depois ("Response served by service worker has redirections")
+// — e mesmo em browsers tolerantes seria a página errada. NUNCA chame
+// cache.put()/cache.add() sem antes checar response.ok && !response.redirected.
+const CACHE_VERSION = "v3";
 const CACHE_NAME = `dominium-shell-${CACHE_VERSION}`;
 const OFFLINE_URL = "/offline";
 
+// Rotas com HTML pré-renderizado como conteúdo estático (sem dado
+// server-side personalizado — cada uma busca tudo via /api/* no cliente),
+// por isso é seguro pré-cachear: cold start offline abre o app shell
+// correto pra essas rotas em vez de cair direto no fallback /offline.
+// Só cobre o que a Fase 2 promete funcionar offline; outras rotas
+// protegidas continuam sem shell offline garantido.
+//
+// O install do SW pode acontecer ANTES do usuário logar (ex.: primeira
+// visita cai em /login), então /dashboard e /lancamentos podem não ficar
+// cacheados aqui ainda (o fetch seria redirecionado e, com a checagem
+// acima, simplesmente não é guardado). Por isso o app também "esquenta"
+// essas rotas do lado do cliente assim que confirma uma sessão válida —
+// ver frontend/src/lib/offline/shellCache.ts (usa o MESMO nome de cache).
 const PRECACHE_URLS = [
   OFFLINE_URL,
+  "/login",
+  "/dashboard",
+  "/lancamentos",
   "/manifest.json",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
 ];
 
+// Única porta de entrada pro cache: nunca guarda redirect nem resposta
+// quebrada como se fosse o shell de uma rota.
+async function guardarNoCacheSeValido(cache, requestOuUrl, response) {
+  if (response && response.ok && !response.redirected) {
+    await cache.put(requestOuUrl, response);
+  }
+}
+
+async function precache(cache, url) {
+  try {
+    const response = await fetch(url, { credentials: "same-origin" });
+    await guardarNoCacheSeValido(cache, url, response);
+  } catch {
+    // sem rede no install: sem problema, tenta de novo numa próxima
+    // atualização do SW ou via aquecimento do lado do cliente.
+  }
+}
+
 self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches
-      .open(CACHE_NAME)
-      .then((cache) => Promise.all(PRECACHE_URLS.map((url) => cache.add(url).catch(() => {}))))
-  );
+  event.waitUntil(caches.open(CACHE_NAME).then((cache) => Promise.all(PRECACHE_URLS.map((url) => precache(cache, url)))));
   self.skipWaiting();
 });
 
@@ -69,8 +106,14 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       fetch(request)
         .then((response) => {
-          const copy = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+          // Só cacheia se for a resposta final e válida da própria rota
+          // pedida (ver guardarNoCacheSeValido) — uma resposta redirecionada
+          // (ex.: sem sessão, proxy manda pro /login) NUNCA é gravada aqui,
+          // mas ainda é devolvida normalmente pro browser tratar ao vivo.
+          if (response.ok && !response.redirected) {
+            const copy = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+          }
           return response;
         })
         .catch(async () => {
@@ -87,8 +130,10 @@ self.addEventListener("fetch", (event) => {
       caches.match(request).then((cached) => {
         if (cached) return cached;
         return fetch(request).then((response) => {
-          const copy = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+          if (response.ok && !response.redirected) {
+            const copy = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+          }
           return response;
         });
       })

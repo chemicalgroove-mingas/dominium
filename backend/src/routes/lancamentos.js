@@ -1,5 +1,6 @@
 const express = require('express');
 const { z } = require('zod');
+const { Prisma } = require('@prisma/client');
 const prisma = require('../lib/prisma');
 const { autenticar, exigirRole } = require('../middleware/auth');
 const { somarMeses, mesAtual, parseMes } = require('../utils/mes');
@@ -12,6 +13,7 @@ router.use(autenticar, exigirRole('USER'));
 const mesSchema = z.string().regex(/^\d{4}-\d{2}$/, 'Use o formato AAAA-MM.');
 
 const baseSchema = z.object({
+  id: z.string().uuid().optional(),
   instanciaId: z.string().min(1),
   descricao: z.string().trim().min(1, 'Informe uma descricao.'),
   valor: z.number().positive('O valor precisa ser maior que zero.'),
@@ -93,19 +95,40 @@ router.post('/', asyncHandler(async (req, res) => {
   const mesFim =
     parsed.data.tipo === 'temporario' ? somarMeses(parsed.data.mesInicio, parsed.data.parcelas - 1) : null;
 
-  const lancamento = await prisma.lancamento.create({
-    data: {
-      usuarioId: req.usuario.id,
-      instanciaId: parsed.data.instanciaId,
-      descricao: parsed.data.descricao,
-      valor: parsed.data.valor,
-      tipo: parsed.data.tipo,
-      parcelas: parsed.data.tipo === 'temporario' ? parsed.data.parcelas : null,
-      mesInicio: parsed.data.mesInicio,
-      mesFim,
-      observacoes: parsed.data.observacoes || null,
-    },
-  });
+  const dadosCriacao = {
+    usuarioId: req.usuario.id,
+    instanciaId: parsed.data.instanciaId,
+    descricao: parsed.data.descricao,
+    valor: parsed.data.valor,
+    tipo: parsed.data.tipo,
+    parcelas: parsed.data.tipo === 'temporario' ? parsed.data.parcelas : null,
+    mesInicio: parsed.data.mesInicio,
+    mesFim,
+    observacoes: parsed.data.observacoes || null,
+  };
+  if (parsed.data.id) {
+    dadosCriacao.id = parsed.data.id;
+  }
+
+  // Cliente pode enviar um id proprio (uuid gerado no app, ex.: fila offline).
+  // Se um retry reenviar o mesmo id (ex.: a resposta da 1a tentativa se perdeu
+  // na rede), o unique constraint do id barra a duplicata — nesse caso
+  // devolvemos o registro ja existente como sucesso idempotente, em vez de
+  // erro, pra fila de sincronizacao nao ficar presa nem criar copia.
+  let lancamento;
+  try {
+    lancamento = await prisma.lancamento.create({ data: dadosCriacao });
+  } catch (err) {
+    if (parsed.data.id && err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+      const existente = await prisma.lancamento.findFirst({
+        where: { id: parsed.data.id, usuarioId: req.usuario.id },
+      });
+      if (existente) {
+        return res.status(200).json({ lancamento: await serializarComRestantes(existente) });
+      }
+    }
+    throw err;
+  }
   return res.status(201).json({ lancamento: await serializarComRestantes(lancamento) });
 }));
 
