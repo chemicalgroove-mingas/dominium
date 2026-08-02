@@ -48,7 +48,12 @@ export async function tentarSincronizar(usuarioId: string): Promise<void> {
 
       await marcarSincronizando(op.opId);
       try {
-        await api.post<{ lancamento: unknown }>("/api/lancamentos", {
+        // Agnóstico de domínio: cada tipo de operação só difere no endpoint
+        // e no formato do payload (ver lib/offline/outbox.ts) — o id do
+        // cliente reaproveitado como id definitivo é o que garante retry
+        // idempotente em qualquer um deles (mesmo padrão do backend em
+        // lancamentos.js e investimentos.js: P2002 em retry vira sucesso).
+        await api.post<unknown>(op.endpoint, {
           ...op.payload,
           id: op.clienteId,
         });

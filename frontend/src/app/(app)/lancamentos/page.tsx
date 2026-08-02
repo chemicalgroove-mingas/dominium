@@ -21,6 +21,7 @@ import { enqueuarCriacaoLancamento, listarNaoConcluidas } from "@/lib/offline/ou
 import { construirLancamentoOtimista } from "@/lib/offline/optimistic";
 import { tentarSincronizar } from "@/lib/offline/syncManager";
 import { useOutboxPendentes } from "@/lib/offline/useOutboxPendentes";
+import { lerSnapshot, salvarSnapshot } from "@/lib/offline/snapshots";
 import type { LancamentoLocal } from "@/lib/offline/types";
 import type { DashboardData, Grupo, Instancia, Lancamento, TipoLancamento } from "@/lib/types";
 
@@ -117,9 +118,35 @@ export default function LancamentosPage() {
             carregando: false,
           },
         }));
+        if (usuario) salvarSnapshot(`lancamentos:${instancia.id}`, usuario.id, data);
       } catch {
-        // Offline: sem lista do servidor, mas o que já foi criado localmente
-        // (ainda pendente de sincronizar) continua visível.
+        // Offline: sem lista do servidor — complementa com o último
+        // snapshot confirmado desta instância (não só o que já estava em
+        // memória desde o mount, que se perde num cold start) mesclado com
+        // os otimistas, mesma dedupe por id de cima. O total oficial vem
+        // do snapshot/servidor, nunca recalculado no cliente.
+        const snapshot = usuario
+          ? await lerSnapshot<{ lancamentos: Lancamento[]; totalJanela: number }>(`lancamentos:${instancia.id}`, usuario.id)
+          : null;
+
+        if (snapshot) {
+          const sincronizados: LancamentoLocal[] = snapshot.dados.lancamentos.map((l) => ({ ...l, syncStatus: "synced" }));
+          const idsConfirmados = new Set(sincronizados.map((l) => l.id));
+          const otimistasAindaPendentes = otimistas.filter((o) => !idsConfirmados.has(o.id));
+          setGavetas((prev) => ({
+            ...prev,
+            [instancia.id]: {
+              lancamentos: [...otimistasAindaPendentes, ...sincronizados],
+              totalJanela: snapshot.dados.totalJanela,
+              carregando: false,
+            },
+          }));
+          return;
+        }
+
+        // Sem snapshot desta instância (nunca carregada com sucesso neste
+        // aparelho): mostra pelo menos o que já estava em memória desde o
+        // mount, ou só os otimistas.
         setGavetas((prev) => ({
           ...prev,
           [instancia.id]: {

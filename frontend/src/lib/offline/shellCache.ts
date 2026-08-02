@@ -5,8 +5,8 @@
 // cacheados por lá. Por isso, sempre que o app confirma uma sessão válida
 // (login, recarregar bem-sucedido), ele também "esquenta" essas rotas
 // aqui, do lado do cliente, autenticado.
-const CACHE_NAME = "dominium-shell-v3";
-const ROTAS_SHELL_AUTENTICADO = ["/dashboard", "/lancamentos"];
+const CACHE_NAME = "dominium-shell-v4";
+const ROTAS_SHELL_AUTENTICADO = ["/dashboard", "/lancamentos", "/pagamentos", "/investimentos"];
 
 export async function aquecerShellOffline() {
   if (typeof caches === "undefined") return;

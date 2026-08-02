@@ -1,12 +1,23 @@
 import { db } from "@/lib/offline/db";
-import type { OperacaoOutbox, PayloadCriarLancamento } from "@/lib/offline/types";
+import type {
+  OperacaoOutbox,
+  PayloadCriarLancamento,
+  PayloadCriarResgate,
+  TipoOperacaoOutbox,
+} from "@/lib/offline/types";
 
-export async function enqueuarCriacaoLancamento(usuarioId: string, payload: PayloadCriarLancamento) {
+async function enqueuarOperacao(
+  usuarioId: string,
+  tipo: TipoOperacaoOutbox,
+  endpoint: string,
+  payload: PayloadCriarLancamento | PayloadCriarResgate
+) {
   const operacao: OperacaoOutbox = {
     opId: crypto.randomUUID(),
     usuarioId,
     clienteId: crypto.randomUUID(),
-    tipo: "criar-lancamento",
+    tipo,
+    endpoint,
     payload,
     status: "pending",
     tentativas: 0,
@@ -18,6 +29,18 @@ export async function enqueuarCriacaoLancamento(usuarioId: string, payload: Payl
   return operacao;
 }
 
+export function enqueuarCriacaoLancamento(usuarioId: string, payload: PayloadCriarLancamento) {
+  return enqueuarOperacao(usuarioId, "criar-lancamento", "/api/lancamentos", payload);
+}
+
+export function enqueuarCriacaoAporte(usuarioId: string, payload: PayloadCriarLancamento) {
+  return enqueuarOperacao(usuarioId, "criar-aporte", "/api/investimentos/aporte", payload);
+}
+
+export function enqueuarCriacaoResgate(usuarioId: string, payload: PayloadCriarResgate) {
+  return enqueuarOperacao(usuarioId, "criar-resgate", "/api/investimentos/resgate", payload);
+}
+
 export function listarPendentes(usuarioId: string) {
   return db.outbox.where({ usuarioId }).sortBy("criadoEm");
 }
@@ -27,6 +50,14 @@ export function listarNaoConcluidas(usuarioId: string) {
     .where({ usuarioId })
     .filter((op) => op.status !== "synced")
     .sortBy("criadoEm");
+}
+
+// Filtra a fila não-concluída por tipo — usado pelas telas pra montar a
+// visualização otimista (ex.: só "criar-aporte" pra Reserva) sem misturar
+// operações de outros domínios.
+export async function listarNaoConcluidasPorTipo(usuarioId: string, tipos: TipoOperacaoOutbox[]) {
+  const todas = await listarNaoConcluidas(usuarioId);
+  return todas.filter((op) => tipos.includes(op.tipo));
 }
 
 export async function marcarSincronizando(opId: string) {
@@ -61,11 +92,12 @@ export async function limparOutboxDoUsuario(usuarioId: string) {
 
 // Isolamento entre contas no mesmo aparelho: nada do usuário que saiu deve
 // sobrar pro próximo login (nem a fila, nem o espelho de instâncias, nem o
-// snapshot de sessão usado pra abrir o app offline).
+// snapshot de sessão, nem os snapshots de leitura das telas).
 export async function limparDadosLocaisDoUsuario(usuarioId: string) {
-  await db.transaction("rw", db.outbox, db.instanciasCache, db.sessaoLocal, async () => {
+  await db.transaction("rw", db.outbox, db.instanciasCache, db.sessaoLocal, db.snapshots, async () => {
     await db.outbox.where({ usuarioId }).delete();
     await db.instanciasCache.where({ usuarioId }).delete();
     await db.sessaoLocal.clear();
+    await db.snapshots.where({ usuarioId }).delete();
   });
 }

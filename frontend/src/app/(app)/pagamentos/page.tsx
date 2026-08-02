@@ -3,10 +3,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, Check, Undo2 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
-import { formatarMoeda } from "@/lib/format";
+import { formatarDataHora, formatarMoeda } from "@/lib/format";
 import { formatarMesLabel, mesAtual, somarMeses } from "@/lib/mes";
 import { centavosParaNumero, numeroParaCentavos } from "@/lib/moeda";
 import { CampoMoeda } from "@/components/dominium/CampoMoeda";
+import { useAuth } from "@/contexts/AuthContext";
+import { lerSnapshot, salvarSnapshot } from "@/lib/offline/snapshots";
 import type { InstanciaEmAberto } from "@/lib/types";
 
 type RespostaEmAberto = {
@@ -16,10 +18,23 @@ type RespostaEmAberto = {
   instancias: InstanciaEmAberto[];
 };
 
+const SNAPSHOT = "pagamentos-em-aberto";
+
+const MENSAGEM_OFFLINE = "Sem conexão — essa ação exige internet. Tente novamente ao reconectar.";
+
+function mensagemErro(err: unknown) {
+  return err instanceof ApiError ? err.message : MENSAGEM_OFFLINE;
+}
+
 export default function PagamentosPage() {
+  const { usuario } = useAuth();
   const [mesReferencia, setMesReferencia] = useState(mesAtual());
   const [dados, setDados] = useState<RespostaEmAberto | null>(null);
   const [carregando, setCarregando] = useState(true);
+  const [deSnapshot, setDeSnapshot] = useState(false);
+  const [ultimaAtualizacao, setUltimaAtualizacao] = useState<number | null>(null);
+  const [semDadosOffline, setSemDadosOffline] = useState(false);
+  const [erroAcao, setErroAcao] = useState("");
 
   const [instanciaSelecionando, setInstanciaSelecionando] = useState<string | null>(null);
   const [selecionados, setSelecionados] = useState<string[]>([]);
@@ -31,10 +46,27 @@ export default function PagamentosPage() {
     try {
       const data = await api.get<RespostaEmAberto>(`/api/pagamentos/em-aberto?mesReferencia=${mesReferencia}`);
       setDados(data);
+      setDeSnapshot(false);
+      setSemDadosOffline(false);
+      if (usuario) salvarSnapshot(SNAPSHOT, usuario.id, data);
+    } catch {
+      // Offline/erro de rede: cai pro último snapshot confirmado (a última
+      // tela de pagamentos vista com sucesso, não necessariamente deste
+      // mês) em vez de deixar a tela sem nenhuma mensagem.
+      const snapshot = usuario ? await lerSnapshot<RespostaEmAberto>(SNAPSHOT, usuario.id) : null;
+      if (snapshot) {
+        setDados(snapshot.dados);
+        setUltimaAtualizacao(snapshot.atualizadoEm);
+        setDeSnapshot(true);
+        setSemDadosOffline(false);
+      } else {
+        setDados(null);
+        setSemDadosOffline(true);
+      }
     } finally {
       setCarregando(false);
     }
-  }, [mesReferencia]);
+  }, [mesReferencia, usuario]);
 
   useEffect(() => {
     carregar();
@@ -43,6 +75,7 @@ export default function PagamentosPage() {
   }, [carregar]);
 
   async function pagarTotal(instanciaId: string, confirmarDuplicado = false) {
+    setErroAcao("");
     try {
       await api.post("/api/pagamentos/total", { instanciaId, mesReferencia, confirmarDuplicado });
       await carregar();
@@ -51,7 +84,9 @@ export default function PagamentosPage() {
         if (confirm(`${err.message} Deseja confirmar mesmo assim?`)) {
           await pagarTotal(instanciaId, true);
         }
+        return;
       }
+      setErroAcao(mensagemErro(err));
     }
   }
 
@@ -60,6 +95,7 @@ export default function PagamentosPage() {
     if (!confirmarDuplicado && !confirm(`Confirma o pagamento de ${selecionados.length} item(ns) selecionado(s)?`)) {
       return;
     }
+    setErroAcao("");
     try {
       await api.post("/api/pagamentos/selecionados", {
         instanciaId,
@@ -75,7 +111,9 @@ export default function PagamentosPage() {
         if (confirm(`${err.message} Deseja confirmar mesmo assim?`)) {
           await pagarSelecionados(instanciaId, true);
         }
+        return;
       }
+      setErroAcao(mensagemErro(err));
     }
   }
 
@@ -91,13 +129,32 @@ export default function PagamentosPage() {
     ) {
       return;
     }
-    await api.post("/api/pagamentos/reverter", { lancamentoId, mesReferencia });
-    await carregar();
+    setErroAcao("");
+    try {
+      await api.post("/api/pagamentos/reverter", { lancamentoId, mesReferencia });
+      await carregar();
+    } catch (err) {
+      setErroAcao(mensagemErro(err));
+    }
   }
 
   return (
     <div className="mx-auto max-w-3xl">
-      <h1 className="mb-4 font-brand text-2xl text-cream-100">Pagamentos</h1>
+      <h1 className="mb-1 font-brand text-2xl text-cream-100">Pagamentos</h1>
+      <p className="mb-4 h-4 text-[11px] text-cream-100/40">
+        {deSnapshot && ultimaAtualizacao ? `Última atualização: ${formatarDataHora(ultimaAtualizacao)}` : ""}
+      </p>
+
+      {erroAcao && (
+        <p className="mb-4 rounded-lg bg-danger/10 px-3 py-2 text-center text-xs text-danger">{erroAcao}</p>
+      )}
+
+      {semDadosOffline && (
+        <div className="card-dominium mb-4 p-6 text-center text-sm text-cream-100/70">
+          Sem conexão e nenhum pagamento salvo neste aparelho ainda. Abra Pagamentos uma vez online
+          pra poder consultá-lo offline depois.
+        </div>
+      )}
 
       <div className="card-dominium mb-6 flex items-center justify-between p-3">
         <button

@@ -1,42 +1,78 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Area, AreaChart, Bar, BarChart, ResponsiveContainer, Tooltip, XAxis } from "recharts";
 import { api } from "@/lib/api";
-import { formatarMoeda } from "@/lib/format";
+import { formatarDataHora, formatarMoeda } from "@/lib/format";
 import { formatarMesCurto, formatarMesLabel } from "@/lib/mes";
+import { useAuth } from "@/contexts/AuthContext";
 import { useRecorte } from "@/contexts/RecorteContext";
 import { JanelaSelector } from "@/components/dominium/JanelaSelector";
 import { SeletorMesReferencia } from "@/components/dominium/SeletorMesReferencia";
+import { lerSnapshot, salvarSnapshot } from "@/lib/offline/snapshots";
 import type { DashboardData } from "@/lib/types";
 
+const SNAPSHOT = "dashboard";
+
 export default function DashboardPage() {
+  const { usuario } = useAuth();
   const { janela, mesReferencia } = useRecorte();
   const [dados, setDados] = useState<DashboardData | null>(null);
   const [erroCarregar, setErroCarregar] = useState(false);
+  const [deSnapshot, setDeSnapshot] = useState(false);
+  const [ultimaAtualizacao, setUltimaAtualizacao] = useState<number | null>(null);
+  const redeConfirmouRef = useRef(false);
 
   const carregar = useCallback(async () => {
     try {
       const data = await api.get<DashboardData>(`/api/dashboard?janela=${janela}&mesReferencia=${mesReferencia}`);
+      redeConfirmouRef.current = true;
       setDados(data);
       setErroCarregar(false);
+      setDeSnapshot(false);
+      const agora = Date.now();
+      setUltimaAtualizacao(agora);
+      if (usuario) salvarSnapshot(SNAPSHOT, usuario.id, data);
     } catch {
       // Offline: o Dashboard é uma das rotas que abrem no cold start (ver
-      // sw.js), mas saldo/dashboard nunca vem de cache — sem rede, mostra um
-      // estado claro em vez de "Carregando..." pra sempre.
-      setErroCarregar(true);
+      // sw.js), mas saldo/dashboard nunca vem de cache — sem rede, cai pro
+      // último snapshot confirmado (nunca zero disfarçado de dado real); só
+      // sem snapshot algum é que mostra o estado de erro.
+      const snapshot = usuario ? await lerSnapshot<DashboardData>(SNAPSHOT, usuario.id) : null;
+      if (snapshot) {
+        setDados(snapshot.dados);
+        setUltimaAtualizacao(snapshot.atualizadoEm);
+        setDeSnapshot(true);
+        setErroCarregar(false);
+      } else {
+        setErroCarregar(true);
+      }
     }
-  }, [janela, mesReferencia]);
+  }, [janela, mesReferencia, usuario]);
 
   useEffect(() => {
     carregar();
   }, [carregar]);
 
+  useEffect(() => {
+    // Pintura instantânea a partir do último snapshot, sem esperar a rede —
+    // a busca acima (carregar) já dispara em paralelo e substitui assim que
+    // resolver; isso só evita tela de "Carregando..." quando já temos algo.
+    if (!usuario) return;
+    lerSnapshot<DashboardData>(SNAPSHOT, usuario.id).then((snapshot) => {
+      if (!snapshot || redeConfirmouRef.current) return;
+      setDados(snapshot.dados);
+      setUltimaAtualizacao(snapshot.atualizadoEm);
+      setDeSnapshot(true);
+    });
+  }, [usuario]);
+
   if (!dados) {
     if (erroCarregar) {
       return (
         <div className="card-dominium mx-auto max-w-xl p-6 text-center text-sm text-cream-100/70">
-          Sem conexão. Reconecte para ver seu dashboard.
+          Sem conexão e nenhum dashboard salvo neste aparelho ainda. Abra o Dashboard uma vez
+          online pra poder consultá-lo offline depois.
           <button onClick={() => carregar()} className="btn-gold mt-4 block w-full">
             Tentar novamente
           </button>
@@ -66,6 +102,9 @@ export default function DashboardPage() {
         <div>
           <h1 className="font-brand text-2xl text-cream-100">Dashboard</h1>
           <p className="text-xs text-cream-100/50">Referência: {formatarMesLabel(mesReferencia)}</p>
+          {deSnapshot && ultimaAtualizacao && (
+            <p className="text-[11px] text-cream-100/40">Última atualização: {formatarDataHora(ultimaAtualizacao)}</p>
+          )}
         </div>
         <JanelaSelector />
       </div>

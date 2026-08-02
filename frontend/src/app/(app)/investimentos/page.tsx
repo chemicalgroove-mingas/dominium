@@ -1,16 +1,25 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Check, Palette, Pencil, Plus, Trash2, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowLeft, Check, Clock, Palette, Pencil, Plus, Trash2, X } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
 import { useInstancias } from "@/contexts/InstanciasContext";
 import { CampoMoeda } from "@/components/dominium/CampoMoeda";
 import { CampoMes } from "@/components/dominium/CampoMes";
 import { CampoPrazoMeses } from "@/components/dominium/CampoPrazoMeses";
-import { formatarMoeda } from "@/lib/format";
+import { SyncStatusBadge } from "@/components/dominium/SyncStatusBadge";
+import { formatarDataHora, formatarMoeda } from "@/lib/format";
 import { diferencaEmMeses, formatarMesLabel, mesAtual, somarMeses } from "@/lib/mes";
 import { centavosParaNumero, numeroParaCentavos } from "@/lib/moeda";
 import { PALETA_INSTANCIA } from "@/lib/cores";
+import { enqueuarCriacaoAporte, enqueuarCriacaoResgate, listarNaoConcluidas } from "@/lib/offline/outbox";
+import { construirAporteOtimista, construirResgateOtimista } from "@/lib/offline/optimistic";
+import { tentarSincronizar } from "@/lib/offline/syncManager";
+import { useOutboxPendentes } from "@/lib/offline/useOutboxPendentes";
+import { useOnlineStatus } from "@/lib/offline/useOnlineStatus";
+import { lerSnapshot, salvarSnapshot } from "@/lib/offline/snapshots";
+import type { AporteLocal, OperacaoOutbox, ResgateLocal } from "@/lib/offline/types";
 import type { Aporte, ContaInvestimento, Instancia, Subgrupo, TipoLancamento } from "@/lib/types";
 
 const LABEL_SUBGRUPO: Record<Subgrupo, string> = { pessoal: "Reserva Pessoal", patrimonial: "Reserva Patrimonial" };
@@ -26,12 +35,48 @@ const FORM_VAZIO = {
   observacoes: "",
 };
 
+const MENSAGEM_OFFLINE = "Sem conexão — essa ação exige internet. Tente novamente ao reconectar.";
+
+// Mescla aportes/resgates ainda pendentes na outbox (deste usuário) dentro
+// das contas já carregadas (do servidor ou de um snapshot offline).
+// Reconciliação por id: se a conta já traz o item confirmado (mesmo id do
+// uuid gerado no cliente), a versão otimista correspondente é descartada —
+// nunca soma as duas, nunca compara por descrição/valor/data.
+async function mesclarPendentes(contasBase: ContaInvestimento[], usuarioId: string): Promise<ContaInvestimento[]> {
+  const pendentes = await listarNaoConcluidas(usuarioId);
+  return contasBase.map((conta) => {
+    const idsAportes = new Set(conta.aportes.map((a) => a.id));
+    const idsResgates = new Set(conta.resgates.map((r) => r.id));
+    const aportesOtimistas = pendentes
+      .filter((op) => op.tipo === "criar-aporte" && op.payload.instanciaId === conta.id && !idsAportes.has(op.clienteId))
+      .map(construirAporteOtimista);
+    const resgatesOtimistas = pendentes
+      .filter((op) => op.tipo === "criar-resgate" && op.payload.instanciaId === conta.id && !idsResgates.has(op.clienteId))
+      .map(construirResgateOtimista);
+    if (aportesOtimistas.length === 0 && resgatesOtimistas.length === 0) return conta;
+    return {
+      ...conta,
+      aportes: [...aportesOtimistas, ...conta.aportes],
+      resgates: [...resgatesOtimistas, ...conta.resgates],
+    };
+  });
+}
+
+const SNAPSHOT = "investimentos";
+
 export default function InvestimentosPage() {
+  const { usuario } = useAuth();
   const { recarregar: recarregarInstancias } = useInstancias();
+  const pendentesUsuario = useOutboxPendentes(usuario?.id);
+  const pendentesAnterioresRef = useRef(0);
 
   const [subgrupo, setSubgrupo] = useState<Subgrupo>("pessoal");
   const [contas, setContas] = useState<ContaInvestimento[]>([]);
   const [carregando, setCarregando] = useState(true);
+  const [deSnapshot, setDeSnapshot] = useState(false);
+  const [ultimaAtualizacao, setUltimaAtualizacao] = useState<number | null>(null);
+  const [semDadosOffline, setSemDadosOffline] = useState(false);
+  const [erroAcao, setErroAcao] = useState("");
 
   const [estado, setEstado] = useState<"geral" | "foco">("geral");
   const [contaFoco, setContaFoco] = useState<ContaInvestimento | null>(null);
@@ -56,16 +101,46 @@ export default function InvestimentosPage() {
     setCarregando(true);
     try {
       const data = await api.get<{ contas: ContaInvestimento[] }>(`/api/investimentos?subgrupo=${subgrupo}`);
-      setContas(data.contas);
+      const comPendentes = usuario ? await mesclarPendentes(data.contas, usuario.id) : data.contas;
+      setContas(comPendentes);
+      setDeSnapshot(false);
+      setSemDadosOffline(false);
+      const agora = Date.now();
+      setUltimaAtualizacao(agora);
+      if (usuario) salvarSnapshot(`${SNAPSHOT}:${subgrupo}`, usuario.id, data.contas);
+    } catch {
+      // Offline: cai pro último snapshot confirmado deste subgrupo, mesclado
+      // com o que ainda está pendente na outbox deste aparelho.
+      const snapshot = usuario ? await lerSnapshot<ContaInvestimento[]>(`${SNAPSHOT}:${subgrupo}`, usuario.id) : null;
+      if (snapshot) {
+        const comPendentes = usuario ? await mesclarPendentes(snapshot.dados, usuario.id) : snapshot.dados;
+        setContas(comPendentes);
+        setUltimaAtualizacao(snapshot.atualizadoEm);
+        setDeSnapshot(true);
+        setSemDadosOffline(false);
+      } else {
+        setContas([]);
+        setSemDadosOffline(true);
+      }
     } finally {
       setCarregando(false);
     }
-  }, [subgrupo]);
+  }, [subgrupo, usuario]);
 
   useEffect(() => {
     carregar();
     setEstado("geral");
   }, [carregar]);
+
+  useEffect(() => {
+    // Quando um aporte/resgate pendente termina de sincronizar, busca de
+    // novo pra reconciliar com o valor confirmado pelo servidor (patrimônio,
+    // acumulado etc. nunca são recalculados no cliente).
+    if (pendentesUsuario.length < pendentesAnterioresRef.current) {
+      carregar();
+    }
+    pendentesAnterioresRef.current = pendentesUsuario.length;
+  }, [pendentesUsuario.length, carregar]);
 
   const patrimonioTotal = useMemo(() => contas.reduce((acc, c) => acc + c.patrimonio, 0), [contas]);
 
@@ -120,10 +195,15 @@ export default function InvestimentosPage() {
 
   async function excluirConta() {
     if (!contaParaExcluir) return;
-    await api.delete(`/api/instancias/${contaParaExcluir.id}`);
-    setContaParaExcluir(null);
-    if (contaFoco?.id === contaParaExcluir.id) voltarParaGeral();
-    await Promise.all([recarregarInstancias(), carregar()]);
+    setErroAcao("");
+    try {
+      await api.delete(`/api/instancias/${contaParaExcluir.id}`);
+      setContaParaExcluir(null);
+      if (contaFoco?.id === contaParaExcluir.id) voltarParaGeral();
+      await Promise.all([recarregarInstancias(), carregar()]);
+    } catch (err) {
+      setErroAcao(err instanceof ApiError ? err.message : MENSAGEM_OFFLINE);
+    }
   }
 
   async function salvarAporte(e: React.FormEvent) {
@@ -151,49 +231,93 @@ export default function InvestimentosPage() {
       observacoes: form.observacoes || null,
     };
 
-    setSalvando(true);
-    try {
-      if (aporteEditando) {
+    // Edição continua online-only (depende de estado do servidor — mesma
+    // regra já aplicada em Lançamentos). Só a criação é offline-first.
+    if (aporteEditando) {
+      setSalvando(true);
+      try {
         await api.put(`/api/investimentos/aporte/${aporteEditando.id}`, payload);
-      } else {
-        await api.post("/api/investimentos/aporte", payload);
+        await carregar();
+        voltarParaGeral();
+      } catch (err) {
+        setErroForm(err instanceof ApiError ? err.message : "Nao foi possivel salvar o aporte.");
+      } finally {
+        setSalvando(false);
       }
-      await carregar();
-      voltarParaGeral();
-    } catch (err) {
-      setErroForm(err instanceof ApiError ? err.message : "Nao foi possivel salvar o aporte.");
-    } finally {
-      setSalvando(false);
+      return;
     }
+
+    if (!usuario) return;
+    const operacao = await enqueuarCriacaoAporte(usuario.id, payload);
+    const otimista = construirAporteOtimista(operacao);
+    setContas((prev) => prev.map((c) => (c.id === contaFoco.id ? { ...c, aportes: [otimista, ...c.aportes] } : c)));
+    setForm(FORM_VAZIO);
+    voltarParaGeral();
+    tentarSincronizar(usuario.id);
   }
 
   async function excluirAporte(id: string) {
-    await api.delete(`/api/investimentos/aporte/${id}`);
-    await carregar();
+    setErroAcao("");
+    try {
+      await api.delete(`/api/investimentos/aporte/${id}`);
+      await carregar();
+    } catch (err) {
+      setErroAcao(err instanceof ApiError ? err.message : MENSAGEM_OFFLINE);
+    }
   }
 
   async function excluirResgate(id: string) {
-    await api.delete(`/api/investimentos/resgate/${id}`);
-    await carregar();
+    setErroAcao("");
+    try {
+      await api.delete(`/api/investimentos/resgate/${id}`);
+      await carregar();
+    } catch (err) {
+      setErroAcao(err instanceof ApiError ? err.message : MENSAGEM_OFFLINE);
+    }
   }
 
   async function excluirValorExtra(id: string) {
-    await api.delete(`/api/investimentos/valor-extra/${id}`);
-    await carregar();
+    setErroAcao("");
+    try {
+      await api.delete(`/api/investimentos/valor-extra/${id}`);
+      await carregar();
+    } catch (err) {
+      setErroAcao(err instanceof ApiError ? err.message : MENSAGEM_OFFLINE);
+    }
   }
 
   async function concluirProjeto(conta: ContaInvestimento) {
-    await api.patch(`/api/instancias/${conta.id}/ativa`);
-    setModalOpcoes(null);
-    if (contaFoco?.id === conta.id) voltarParaGeral();
-    await Promise.all([recarregarInstancias(), carregar()]);
+    setErroAcao("");
+    try {
+      await api.patch(`/api/instancias/${conta.id}/ativa`);
+      setModalOpcoes(null);
+      if (contaFoco?.id === conta.id) voltarParaGeral();
+      await Promise.all([recarregarInstancias(), carregar()]);
+    } catch (err) {
+      setErroAcao(err instanceof ApiError ? err.message : MENSAGEM_OFFLINE);
+    }
   }
 
   return (
     <div className="mx-auto max-w-3xl lg:max-w-5xl">
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-1 flex items-center justify-between">
         <h1 className="font-brand text-2xl text-cream-100">Reserva</h1>
+        <SyncStatusBadge />
       </div>
+      <p className="mb-4 h-4 text-[11px] text-cream-100/40">
+        {deSnapshot && ultimaAtualizacao ? `Última atualização: ${formatarDataHora(ultimaAtualizacao)}` : ""}
+      </p>
+
+      {erroAcao && (
+        <p className="mb-4 rounded-lg bg-danger/10 px-3 py-2 text-center text-xs text-danger">{erroAcao}</p>
+      )}
+
+      {semDadosOffline && (
+        <div className="card-dominium mb-4 p-6 text-center text-sm text-cream-100/70">
+          Sem conexão e nenhuma reserva salva neste aparelho ainda. Abra a Reserva uma vez online
+          pra poder consultá-la offline depois.
+        </div>
+      )}
 
       <div className="mb-4 flex gap-2">
         {(["pessoal", "patrimonial"] as Subgrupo[]).map((s) => (
@@ -317,7 +441,7 @@ export default function InvestimentosPage() {
             ))}
           </div>
 
-          {!carregando && contas.length === 0 && (
+          {!carregando && !semDadosOffline && contas.length === 0 && (
             <div className="card-dominium mb-4 p-6 text-center text-sm text-cream-100/70">
               Nenhuma conta de {LABEL_SUBGRUPO[subgrupo].toLowerCase()} ainda. Crie uma (ex:{" "}
               {subgrupo === "pessoal" ? '"Trocar de celular"' : '"Investimento IPCA+"'}) e lance valores.
@@ -494,8 +618,19 @@ export default function InvestimentosPage() {
         </div>
       )}
 
-      {modalResgate && (
-        <ModalResgate conta={modalResgate} onClose={() => setModalResgate(null)} onSalvo={async () => { setModalResgate(null); await carregar(); }} />
+      {modalResgate && usuario && (
+        <ModalResgate
+          conta={modalResgate}
+          usuarioId={usuario.id}
+          onClose={() => setModalResgate(null)}
+          onCriado={(operacao) => {
+            const otimista = construirResgateOtimista(operacao);
+            setContas((prev) =>
+              prev.map((c) => (c.id === modalResgate.id ? { ...c, resgates: [otimista, ...c.resgates] } : c))
+            );
+            setModalResgate(null);
+          }}
+        />
       )}
 
       {modalOpcoes && (
@@ -600,10 +735,17 @@ function ListaValores({
       {conta.aportes.map((a) => {
         const extras = a.valoresExtras || [];
         const somaExtras = extras.reduce((acc, v) => acc + v.valor, 0);
+        const syncStatus = (a as AporteLocal).syncStatus;
+        const sincronizado = !syncStatus || syncStatus === "synced";
         return (
-          <div key={a.id} className="flex items-center gap-3 border-t border-navy-700 pt-2 first:border-t-0 first:pt-0">
+          <div
+            key={a.id}
+            className={`flex items-center gap-3 border-t border-navy-700 pt-2 first:border-t-0 first:pt-0 ${
+              sincronizado ? "" : "opacity-60"
+            }`}
+          >
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm text-cream-100">
+              <p className="flex items-center gap-1.5 truncate text-sm text-cream-100">
                 {a.descricao}{" "}
                 {a.tipo === "temporario" && a.parcelasRestantesComValor != null && (
                   <span className="text-xs font-normal text-cream-100/50">
@@ -611,6 +753,12 @@ function ListaValores({
                   </span>
                 )}{" "}
                 {a.metaBatida && <Check size={12} className="ml-1 inline text-success" />}
+                {!sincronizado && (
+                  <span className="flex shrink-0 items-center gap-1 text-[10px] font-normal text-gold-300/80">
+                    <Clock size={11} />
+                    {syncStatus === "failed" ? "falha ao sincronizar" : "pendente"}
+                  </span>
+                )}
               </p>
               {a.tipo === "fixo" ? (
                 <p className="tabular text-xs text-cream-100/60">{formatarMoeda(a.valor)}/mês · FIXO</p>
@@ -663,70 +811,121 @@ function ListaValores({
                 </>
               )}
             </div>
-            <button
-              onClick={() => onEditarValor(a)}
-              className="p-2 text-cream-100/40 hover:text-gold-300"
-              aria-label="Editar valor"
-            >
-              <Pencil size={15} />
-            </button>
-            <button
-              onClick={() => onExcluirValor(a.id)}
-              className="p-2 text-cream-100/40 hover:text-danger"
-              aria-label="Excluir valor"
-            >
-              <Trash2 size={15} />
-            </button>
+            {sincronizado && (
+              <>
+                <button
+                  onClick={() => onEditarValor(a)}
+                  className="p-2 text-cream-100/40 hover:text-gold-300"
+                  aria-label="Editar valor"
+                >
+                  <Pencil size={15} />
+                </button>
+                <button
+                  onClick={() => onExcluirValor(a.id)}
+                  className="p-2 text-cream-100/40 hover:text-danger"
+                  aria-label="Excluir valor"
+                >
+                  <Trash2 size={15} />
+                </button>
+              </>
+            )}
           </div>
         );
       })}
-      {conta.resgates.map((r) => (
-        <div key={r.id} className="flex items-center gap-3 border-t border-navy-700 pt-2 first:border-t-0 first:pt-0">
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm text-cream-100">{r.descricao}</p>
-            <p className="tabular text-xs text-danger">{formatarMoeda(r.valor)} · resgate</p>
-          </div>
-          <button
-            onClick={() => onExcluirResgate(r.id)}
-            className="p-2 text-cream-100/40 hover:text-danger"
-            aria-label="Excluir resgate"
+      {conta.resgates.map((r) => {
+        const syncStatus = (r as ResgateLocal).syncStatus;
+        const sincronizado = !syncStatus || syncStatus === "synced";
+        return (
+          <div
+            key={r.id}
+            className={`flex items-center gap-3 border-t border-navy-700 pt-2 first:border-t-0 first:pt-0 ${
+              sincronizado ? "" : "opacity-60"
+            }`}
           >
-            <Trash2 size={15} />
-          </button>
-        </div>
-      ))}
+            <div className="min-w-0 flex-1">
+              <p className="flex items-center gap-1.5 truncate text-sm text-cream-100">
+                {r.descricao}
+                {!sincronizado && (
+                  <span className="flex shrink-0 items-center gap-1 text-[10px] font-normal text-gold-300/80">
+                    <Clock size={11} />
+                    {syncStatus === "failed" ? "falha ao sincronizar" : "pendente"}
+                  </span>
+                )}
+              </p>
+              <p className="tabular text-xs text-danger">{formatarMoeda(r.valor)} · resgate</p>
+            </div>
+            {sincronizado && (
+              <button
+                onClick={() => onExcluirResgate(r.id)}
+                className="p-2 text-cream-100/40 hover:text-danger"
+                aria-label="Excluir resgate"
+              >
+                <Trash2 size={15} />
+              </button>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
 
+// Resgate é offline-first: sempre passa pela outbox (mesmo online — a
+// sincronização é só quase instantânea nesse caso), reconciliado depois
+// pelo id. O backend não bloqueia saque maior que o patrimônio (decisão de
+// produto: a Reserva pode ficar negativa após reconciliar movimentações de
+// múltiplos aparelhos) — por isso este modal nunca bloqueia por saldo
+// insuficiente, só deixa claro, offline, que os números são estimativa.
 function ModalResgate({
   conta,
+  usuarioId,
   onClose,
-  onSalvo,
+  onCriado,
 }: {
   conta: ContaInvestimento;
+  usuarioId: string;
   onClose: () => void;
-  onSalvo: () => void;
+  onCriado: (operacao: OperacaoOutbox) => void;
 }) {
   const [descricao, setDescricao] = useState("Resgate");
   const [valorCentavos, setValorCentavos] = useState(0);
   const [erro, setErro] = useState("");
   const [salvando, setSalvando] = useState(false);
+  const [confirmouOffline, setConfirmouOffline] = useState(false);
+  const online = useOnlineStatus();
+  const pendentes = useOutboxPendentes(usuarioId);
+
+  const netoPendente = pendentes
+    .filter((op) => op.payload.instanciaId === conta.id)
+    .reduce((acc, op) => {
+      if (op.tipo === "criar-aporte") return acc + op.payload.valor;
+      if (op.tipo === "criar-resgate") return acc - op.payload.valor;
+      return acc;
+    }, 0);
+  const valorNumerico = centavosParaNumero(valorCentavos);
+  const saldoEstimadoApos = conta.patrimonio + netoPendente - (valorNumerico || 0);
 
   async function salvar(e: React.FormEvent) {
     e.preventDefault();
     setErro("");
-    const valorNumerico = centavosParaNumero(valorCentavos);
     if (!valorNumerico || valorNumerico <= 0) {
       setErro("Informe um valor maior que zero.");
       return;
     }
+    if (!online && !confirmouOffline) {
+      setConfirmouOffline(true);
+      return;
+    }
     setSalvando(true);
     try {
-      await api.post("/api/investimentos/resgate", { instanciaId: conta.id, descricao, valor: valorNumerico });
-      onSalvo();
-    } catch (err) {
-      setErro(err instanceof ApiError ? err.message : "Nao foi possivel salvar.");
+      const operacao = await enqueuarCriacaoResgate(usuarioId, {
+        instanciaId: conta.id,
+        descricao,
+        valor: valorNumerico,
+        observacoes: null,
+      });
+      tentarSincronizar(usuarioId);
+      onCriado(operacao);
     } finally {
       setSalvando(false);
     }
@@ -736,21 +935,64 @@ function ModalResgate({
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center">
       <form onSubmit={salvar} className="card-dominium w-full max-w-sm rounded-b-none p-5 sm:rounded-b-2xl">
         <h2 className="mb-1 font-brand text-lg text-cream-100">Resgatar</h2>
-        <p className="mb-4 text-xs text-cream-100/60">{conta.nome} · {formatarMoeda(conta.patrimonio)} disponível</p>
+        <p className="mb-3 text-xs text-cream-100/60">{conta.nome}</p>
+
+        <div className="mb-4 space-y-1 rounded-xl bg-navy-900/60 p-3 text-xs text-cream-100/70">
+          <div className="flex justify-between">
+            <span>Último saldo confirmado</span>
+            <span className="tabular">{formatarMoeda(conta.patrimonio)}</span>
+          </div>
+          {netoPendente !== 0 && (
+            <div className="flex justify-between">
+              <span>Pendente neste aparelho</span>
+              <span className="tabular">
+                {netoPendente > 0 ? "+" : ""}
+                {formatarMoeda(netoPendente)}
+              </span>
+            </div>
+          )}
+          <div className="flex justify-between font-medium text-cream-100">
+            <span>Saldo local estimado após este resgate</span>
+            <span className="tabular">{formatarMoeda(saldoEstimadoApos)}</span>
+          </div>
+          <p className="pt-1 text-[10px] text-cream-100/40">
+            Estimativa deste aparelho — não é o saldo confirmado pelo servidor.
+          </p>
+        </div>
+
         <div className="mb-4">
           <label className="mb-1 block text-sm text-cream-100/80">Descrição</label>
           <input className="input-dominium" value={descricao} onChange={(e) => setDescricao(e.target.value)} required />
         </div>
-        <div className="mb-5">
-          <CampoMoeda label="Valor" valorCentavos={valorCentavos} onChange={setValorCentavos} autoFocus required />
+        <div className="mb-3">
+          <CampoMoeda
+            label="Valor"
+            valorCentavos={valorCentavos}
+            onChange={(v) => {
+              setValorCentavos(v);
+              setConfirmouOffline(false);
+            }}
+            autoFocus
+            required
+          />
         </div>
+
+        {!online && (
+          <p className="mb-3 rounded-lg bg-danger/10 px-3 py-2 text-xs text-danger">
+            Você está offline. Os valores acima são do último estado conhecido e podem estar
+            desatualizados (ex.: se outro aparelho já mexeu nessa reserva). O resgate fica
+            pendente e sincroniza quando a internet voltar — a Reserva pode inclusive ficar
+            negativa depois de reconciliar.
+          </p>
+        )}
+
         {erro && <p className="mb-3 text-sm text-danger">{erro}</p>}
         <div className="flex gap-2">
           <button type="button" onClick={onClose} className="flex-1 rounded-xl border border-navy-700 py-3 text-sm text-cream-100/70">
             Cancelar
           </button>
           <button type="submit" className="flex-1 rounded-xl bg-danger py-3 text-sm font-medium text-cream-100" disabled={salvando}>
-            {salvando ? "Salvando..." : "Confirmar resgate"}
+            {salvando ? "Salvando..." : !online && !confirmouOffline ? "Continuar mesmo assim" : "Confirmar resgate"}
           </button>
         </div>
       </form>
