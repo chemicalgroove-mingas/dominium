@@ -1,14 +1,20 @@
 import { formatarMoeda } from "@/lib/format";
-import { formatarMesLabel } from "@/lib/mes";
+import { formatarMesLabel, somarMeses } from "@/lib/mes";
 import { LOGO_DOMINIUM } from "@/lib/dominiumLogoBase64";
 import type { InstanciaRelatorio, Janela, RelatorioData } from "@/lib/types";
 
-const LABEL_JANELA: Record<Janela, string> = {
-  mes: "1 mês",
-  "3m": "3 meses",
-  "6m": "6 meses",
-  "12m": "12 meses",
-};
+const NUMERO_MESES_JANELA: Record<Janela, number> = { mes: 1, "3m": 3, "6m": 6, "12m": 12 };
+
+// Espelha o mesmo recorte que a tabela ja mostra hoje: mesReferencia e' a
+// ancora (entra na contagem) e o intervalo vai pra frente. mesFinal =
+// mesReferencia + (N-1) meses — nao muda a direcao do recorte de dados, so
+// deixa isso explicito no texto em vez do vago "a partir de".
+function construirDescritorPeriodo(janela: Janela, mesReferencia: string) {
+  const meses = NUMERO_MESES_JANELA[janela];
+  if (meses <= 1) return `Referência: ${formatarMesLabel(mesReferencia)}`;
+  const mesFinal = somarMeses(mesReferencia, meses - 1);
+  return `Referência: de ${formatarMesLabel(mesReferencia)} a ${formatarMesLabel(mesFinal)}`;
+}
 
 function agruparSecoes(porInstancia: InstanciaRelatorio[]) {
   const receitas = porInstancia.filter((i) => i.instancia.grupo === "receita");
@@ -69,7 +75,7 @@ export async function gerarRelatorioPdfBlob(dados: RelatorioData): Promise<Blob>
   const { resumo, porInstancia } = dados;
   const secoes = agruparSecoes(porInstancia);
   const mostrarProjecao = resumo.janela !== "mes";
-  const descritorPeriodo = `${LABEL_JANELA[resumo.janela]} a partir de ${formatarMesLabel(resumo.mesReferencia)}`;
+  const descritorPeriodo = construirDescritorPeriodo(resumo.janela, resumo.mesReferencia);
 
   type ItemResumo = { label: string; valor: string; negativo: boolean };
   const resumoItens: ItemResumo[] = [
@@ -193,7 +199,7 @@ export async function gerarRelatorioPdfBlob(dados: RelatorioData): Promise<Blob>
         left: 0,
         right: 0,
         flexDirection: "row",
-        justifyContent: "space-between",
+        justifyContent: "flex-start",
         borderTopWidth: 1,
         borderTopColor: LINE,
         paddingHorizontal: 44,
@@ -294,9 +300,9 @@ export async function gerarRelatorioPdfBlob(dados: RelatorioData): Promise<Blob>
 
           <View style={styles.rodape} fixed>
             <Text style={styles.rodapeTexto}>
-              Gerado pelo <Text style={{ color: GOLD_DARK }}>DOMINIUM</Text> em {new Date().toLocaleString("pt-BR")}
+              Gerado por <Text style={{ color: GOLD_DARK }}>dominiumfinance.com.br</Text> em{" "}
+              {new Date().toLocaleString("pt-BR")}
             </Text>
-            <Text style={styles.rodapeTexto}>Documento sob demanda — não armazenado.</Text>
           </View>
         </Page>
       </Document>
