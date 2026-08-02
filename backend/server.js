@@ -10,6 +10,7 @@ const lancamentosRouter = require('./src/routes/lancamentos');
 const pagamentosRouter = require('./src/routes/pagamentos');
 const investimentosRouter = require('./src/routes/investimentos');
 const dashboardRouter = require('./src/routes/dashboard');
+const relatorioRouter = require('./src/routes/relatorio');
 const vouchersRouter = require('./src/routes/vouchers');
 const usuariosAdminRouter = require('./src/routes/usuariosAdmin');
 
@@ -38,6 +39,7 @@ app.use('/api/lancamentos', lancamentosRouter);
 app.use('/api/pagamentos', pagamentosRouter);
 app.use('/api/investimentos', investimentosRouter);
 app.use('/api/dashboard', dashboardRouter);
+app.use('/api/relatorio', relatorioRouter);
 app.use('/api/admin/vouchers', vouchersRouter);
 app.use('/api/admin/usuarios', usuariosAdminRouter);
 

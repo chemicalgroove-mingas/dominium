@@ -169,3 +169,27 @@ export type DashboardData = {
   totalInstancias: number;
   totalLancamentos: number;
 };
+
+// Espelha o payload de GET /api/relatorio (backend/src/routes/relatorio.js):
+// resumo reaproveita os mesmos agregados do dashboard; porInstancia traz os
+// lancamentos discriminados linha a linha (parcelasNaJanela), ja projetados
+// pelo backend — o frontend so formata isso em PDF, nunca recalcula.
+export type LinhaRelatorio = {
+  lancamentoId: string;
+  descricao: string;
+  tipo: TipoLancamento;
+  mes: string;
+  valor: number;
+  parcela: number | null;
+  totalParcelas: number | null;
+};
+
+export type InstanciaRelatorio = {
+  instancia: { id: string; nome: string; grupo: Grupo; subgrupo: Subgrupo | null; cor: string };
+  linhas: LinhaRelatorio[];
+};
+
+export type RelatorioData = {
+  resumo: Omit<DashboardData, "totalInstancias" | "totalLancamentos">;
+  porInstancia: InstanciaRelatorio[];
+};

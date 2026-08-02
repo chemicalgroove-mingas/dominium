@@ -17,7 +17,7 @@
 // Response depois ("Response served by service worker has redirections")
 // — e mesmo em browsers tolerantes seria a página errada. NUNCA chame
 // cache.put()/cache.add() sem antes checar response.ok && !response.redirected.
-const CACHE_VERSION = "v3";
+const CACHE_VERSION = "v4";
 const CACHE_NAME = `dominium-shell-${CACHE_VERSION}`;
 const OFFLINE_URL = "/offline";
 
@@ -39,6 +39,8 @@ const PRECACHE_URLS = [
   "/login",
   "/dashboard",
   "/lancamentos",
+  "/pagamentos",
+  "/investimentos",
   "/manifest.json",
   "/icons/icon-192.png",
   "/icons/icon-512.png",

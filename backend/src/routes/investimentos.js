@@ -1,5 +1,6 @@
 const express = require('express');
 const { z } = require('zod');
+const { Prisma } = require('@prisma/client');
 const prisma = require('../lib/prisma');
 const { autenticar, exigirRole } = require('../middleware/auth');
 const { asyncHandler } = require('../utils/asyncHandler');
@@ -74,6 +75,7 @@ router.get('/', asyncHandler(async (req, res) => {
 }));
 
 const aporteSchema = z.object({
+  id: z.string().uuid().optional(),
   instanciaId: z.string().min(1),
   descricao: z.string().trim().min(1, 'Informe uma descricao.'),
   valor: z.number().positive('O valor precisa ser maior que zero.'),
@@ -117,19 +119,39 @@ router.post('/aporte', asyncHandler(async (req, res) => {
   const mesFim =
     parsed.data.tipo === 'temporario' ? somarMeses(parsed.data.mesInicio, parsed.data.parcelas - 1) : null;
 
-  const aporte = await prisma.lancamento.create({
-    data: {
-      usuarioId: req.usuario.id,
-      instanciaId: parsed.data.instanciaId,
-      descricao: parsed.data.descricao,
-      valor: parsed.data.valor,
-      tipo: parsed.data.tipo,
-      parcelas: parsed.data.tipo === 'temporario' ? parsed.data.parcelas : null,
-      mesInicio: parsed.data.mesInicio,
-      mesFim,
-      observacoes: parsed.data.observacoes || null,
-    },
-  });
+  const dadosCriacao = {
+    usuarioId: req.usuario.id,
+    instanciaId: parsed.data.instanciaId,
+    descricao: parsed.data.descricao,
+    valor: parsed.data.valor,
+    tipo: parsed.data.tipo,
+    parcelas: parsed.data.tipo === 'temporario' ? parsed.data.parcelas : null,
+    mesInicio: parsed.data.mesInicio,
+    mesFim,
+    observacoes: parsed.data.observacoes || null,
+  };
+  if (parsed.data.id) {
+    dadosCriacao.id = parsed.data.id;
+  }
+
+  // Mesmo padrao de backend/src/routes/lancamentos.js: id opcional gerado no
+  // cliente (fila offline) + retry idempotente via unique constraint do id.
+  let aporte;
+  try {
+    aporte = await prisma.lancamento.create({ data: dadosCriacao });
+  } catch (err) {
+    if (parsed.data.id && err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+      const existente = await prisma.lancamento.findFirst({
+        where: { id: parsed.data.id, usuarioId: req.usuario.id },
+      });
+      if (existente) {
+        return res
+          .status(200)
+          .json({ aporte: { ...existente, acumulado: valorAcumuladoAporte(existente), metaBatida: metaBatida(existente) } });
+      }
+    }
+    throw err;
+  }
   return res.status(201).json({ aporte: { ...aporte, acumulado: valorAcumuladoAporte(aporte), metaBatida: metaBatida(aporte) } });
 }));
 
@@ -468,6 +490,7 @@ router.put('/projeto/:instanciaId', asyncHandler(async (req, res) => {
 }));
 
 const resgateSchema = z.object({
+  id: z.string().uuid().optional(),
   instanciaId: z.string().min(1),
   descricao: z.string().trim().min(1, 'Informe uma descricao.'),
   valor: z.number().positive('Informe um valor maior que zero.'),
@@ -483,9 +506,34 @@ router.post('/resgate', asyncHandler(async (req, res) => {
   });
   if (!instancia) return res.status(404).json({ erro: 'Conta de reserva nao encontrada.' });
 
-  const resgate = await prisma.investimento.create({
-    data: { ...parsed.data, valor: -Math.abs(parsed.data.valor), usuarioId: req.usuario.id, observacoes: parsed.data.observacoes || null },
-  });
+  const dadosCriacao = {
+    instanciaId: parsed.data.instanciaId,
+    descricao: parsed.data.descricao,
+    valor: -Math.abs(parsed.data.valor),
+    usuarioId: req.usuario.id,
+    observacoes: parsed.data.observacoes || null,
+  };
+  if (parsed.data.id) {
+    dadosCriacao.id = parsed.data.id;
+  }
+
+  // Mesmo padrao de idempotencia via id opcional + retry em P2002 usado no
+  // aporte/lancamento — critico aqui porque resgate mexe em patrimonio: um
+  // retry apos queda de conexao NUNCA pode sacar duas vezes.
+  let resgate;
+  try {
+    resgate = await prisma.investimento.create({ data: dadosCriacao });
+  } catch (err) {
+    if (parsed.data.id && err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+      const existente = await prisma.investimento.findFirst({
+        where: { id: parsed.data.id, usuarioId: req.usuario.id },
+      });
+      if (existente) {
+        return res.status(200).json({ resgate: existente });
+      }
+    }
+    throw err;
+  }
   return res.status(201).json({ resgate });
 }));
 

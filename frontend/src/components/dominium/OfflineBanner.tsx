@@ -1,22 +1,10 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
 import { WifiOff } from "lucide-react";
-
-function inscrever(retorno: () => void) {
-  window.addEventListener("online", retorno);
-  window.addEventListener("offline", retorno);
-  return () => {
-    window.removeEventListener("online", retorno);
-    window.removeEventListener("offline", retorno);
-  };
-}
-
-const obterOnline = () => navigator.onLine;
-const obterOnlineServidor = () => true;
+import { useOnlineStatus } from "@/lib/offline/useOnlineStatus";
 
 export function OfflineBanner() {
-  const online = useSyncExternalStore(inscrever, obterOnline, obterOnlineServidor);
+  const online = useOnlineStatus();
 
   if (online) return null;
 

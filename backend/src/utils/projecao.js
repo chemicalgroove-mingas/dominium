@@ -42,18 +42,28 @@ function valoresPorParcela(lancamento) {
   return parcelas;
 }
 
+// Intervalo efetivo de vigencia de um lancamento dentro de uma janela
+// [janelaInicio, janelaFim], considerando seu proprio periodo (mesInicio..mesFim
+// para temporario, mesInicio..infinito para fixo). Null quando nao ha sobreposicao.
+// Extraido de projetarLancamentoNaJanela para ser reaproveitado tambem por
+// parcelasNaJanela, sem duplicar a regra de competencia.
+function intervaloEfetivoNaJanela(lancamento, janelaInicio, janelaFim) {
+  const inicioEfetivo = maiorMes(lancamento.mesInicio, janelaInicio);
+  const fimEfetivo = lancamento.tipo === 'fixo' ? janelaFim : menorMes(lancamento.mesFim, janelaFim);
+
+  if (compararMeses(inicioEfetivo, fimEfetivo) > 0) return null;
+  return [inicioEfetivo, fimEfetivo];
+}
+
 // Quanto um lancamento contribui dentro de uma janela [janelaInicio, janelaFim],
 // considerando seu proprio periodo de vigencia (mesInicio..mesFim para temporario,
 // mesInicio..infinito para fixo). Calculo por competencia (calendario), nao por pagamento.
 function projetarLancamentoNaJanela(lancamento, janelaInicio, janelaFim) {
   if (!lancamento.ativo) return { meses: 0, total: 0 };
 
-  const inicioEfetivo = maiorMes(lancamento.mesInicio, janelaInicio);
-  const fimEfetivo = lancamento.tipo === 'fixo' ? janelaFim : menorMes(lancamento.mesFim, janelaFim);
-
-  if (compararMeses(inicioEfetivo, fimEfetivo) > 0) {
-    return { meses: 0, total: 0 };
-  }
+  const efetivo = intervaloEfetivoNaJanela(lancamento, janelaInicio, janelaFim);
+  if (!efetivo) return { meses: 0, total: 0 };
+  const [inicioEfetivo, fimEfetivo] = efetivo;
 
   const meses = diferencaEmMeses(inicioEfetivo, fimEfetivo) + 1;
 
@@ -82,11 +92,38 @@ function projetarLancamentos(lancamentos, mesReferencia, janela) {
   return lancamentos.reduce((acc, l) => acc + projetarLancamentoNaJanela(l, inicio, fim).total, 0);
 }
 
+// Linhas individuais (mes de competencia + valor) de um lancamento dentro de
+// uma janela — usado por relatorios que discriminam lancamento a lancamento,
+// em vez do agregado de projetarLancamentoNaJanela. Reaproveita o mesmo
+// intervalo efetivo e a mesma valoresPorParcela usada no ramo de abatimento,
+// so que sempre (nao so quando ha abatimento) e tambem para 'fixo'.
+function parcelasNaJanela(lancamento, janelaInicio, janelaFim) {
+  if (!lancamento.ativo) return [];
+
+  const efetivo = intervaloEfetivoNaJanela(lancamento, janelaInicio, janelaFim);
+  if (!efetivo) return [];
+  const [inicioEfetivo, fimEfetivo] = efetivo;
+
+  if (lancamento.tipo === 'fixo') {
+    const meses = diferencaEmMeses(inicioEfetivo, fimEfetivo) + 1;
+    return Array.from({ length: meses }, (_, i) => ({
+      mes: somarMeses(inicioEfetivo, i),
+      valor: lancamento.valor,
+      parcela: null,
+    }));
+  }
+
+  return valoresPorParcela(lancamento)
+    .map((p, i) => ({ mes: p.mes, valor: p.valor, parcela: i + 1 }))
+    .filter((p) => compararMeses(p.mes, inicioEfetivo) >= 0 && compararMeses(p.mes, fimEfetivo) <= 0);
+}
+
 module.exports = {
   JANELAS,
   janelaValida,
   limitesJanela,
   projetarLancamentoNaJanela,
   projetarLancamentos,
+  parcelasNaJanela,
   valoresPorParcela,
 };
