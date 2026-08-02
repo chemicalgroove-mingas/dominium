@@ -1,7 +1,6 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import type { Usuario } from "@/lib/types";
 
@@ -16,20 +15,23 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-function redirecionarAposAutenticar(usuario: Usuario, router: ReturnType<typeof useRouter>) {
+// Navegacao pos-autenticacao usa window.location (nao router.push do Next) de
+// proposito: em Safari 15.6 (iPad Air 2 e afins) uma transicao client-side do
+// App Router pode falhar silenciosamente se a hidratacao teve qualquer
+// soluco; uma navegacao de pagina inteira sempre funciona.
+function redirecionarAposAutenticar(usuario: Usuario) {
   if (usuario.deveTrocarSenha) {
-    router.push("/trocar-senha");
+    window.location.href = "/trocar-senha";
   } else if (usuario.role === "ADMIN") {
-    router.push("/admin/usuarios");
+    window.location.href = "/admin/usuarios";
   } else {
-    router.push("/dashboard");
+    window.location.href = "/dashboard";
   }
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [usuario, setUsuario] = useState<Usuario | null>(null);
   const [carregando, setCarregando] = useState(true);
-  const router = useRouter();
 
   const recarregar = useCallback(async () => {
     try {
@@ -57,29 +59,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     recarregar();
   }, [recarregar]);
 
-  const login = useCallback(
-    async (loginValue: string, senha: string) => {
-      const data = await api.post<{ usuario: Usuario }>("/api/auth/login", { login: loginValue, senha });
-      setUsuario(data.usuario);
-      redirecionarAposAutenticar(data.usuario, router);
-    },
-    [router]
-  );
+  const login = useCallback(async (loginValue: string, senha: string) => {
+    const data = await api.post<{ usuario: Usuario }>("/api/auth/login", { login: loginValue, senha });
+    setUsuario(data.usuario);
+    redirecionarAposAutenticar(data.usuario);
+  }, []);
 
   const cadastrar = useCallback(
     async (dados: { nome: string; login: string; senha: string; confirmacao: string; voucher: string }) => {
       const data = await api.post<{ usuario: Usuario }>("/api/auth/cadastro", dados);
       setUsuario(data.usuario);
-      redirecionarAposAutenticar(data.usuario, router);
+      redirecionarAposAutenticar(data.usuario);
     },
-    [router]
+    []
   );
 
   const logout = useCallback(async () => {
     await api.post("/api/auth/logout");
     setUsuario(null);
-    router.push("/login");
-  }, [router]);
+    window.location.href = "/login";
+  }, []);
 
   return (
     <AuthContext.Provider value={{ usuario, carregando, login, cadastrar, logout, recarregar }}>
