@@ -58,13 +58,19 @@ function parcelasRestantesComValor(lancamento) {
     .filter((p) => p.valor > EPS).length;
 }
 
-// Valor efetivo da ultima parcela do cronograma (mes n), ja considerando o
-// abatimento/rendimento aplicado — diferente de proximaParcelaValor, que e a
-// proxima a vencer (pode ser uma parcela do meio do cronograma).
+// Valor efetivo da ultima parcela que AINDA TEM SALDO no cronograma, ja
+// considerando o abatimento aplicado — nao necessariamente o ultimo mes do
+// calendario. Se o abatimento ja zerou o(s) ultimo(s) mes(es), mostrar
+// "R$0,00" para sempre nao ajuda ninguem; a parcela relevante e a ultima que
+// ainda representa um valor real a pagar. Diferente de proximaParcelaValor,
+// que e a proxima a vencer (pode ser uma parcela do meio do cronograma).
 function ultimaParcelaEfetiva(lancamento) {
   if (lancamento.tipo !== 'temporario' || !lancamento.parcelas) return null;
   const todas = valoresPorParcela(lancamento);
-  return todas[todas.length - 1].valor;
+  for (let i = todas.length - 1; i >= 0; i -= 1) {
+    if (todas[i].valor > EPS) return todas[i].valor;
+  }
+  return 0;
 }
 
 module.exports = {
