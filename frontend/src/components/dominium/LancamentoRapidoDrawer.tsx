@@ -32,20 +32,27 @@ export function LancamentoRapidoDrawer({
   const instanciasGasto = porGrupo("gasto");
 
   const [instanciaSelecionada, setInstanciaSelecionada] = useState<Instancia | null>(null);
+  const [descricao, setDescricao] = useState("");
   const [valorCentavos, setValorCentavos] = useState(0);
   const [prazoMeses, setPrazoMeses] = useState<number | "">(1);
   const [erro, setErro] = useState("");
+  const [erroDescricao, setErroDescricao] = useState("");
   const [salvando, setSalvando] = useState(false);
 
-  function limparParaProximo() {
+  // Limpa os campos de um lancamento pra permitir o proximo em seguida, sem
+  // perder a instancia selecionada — agiliza lancamentos consecutivos na
+  // mesma instancia (ex.: varias compras de Mercado seguidas).
+  function limparCamposMantendoInstancia() {
+    setDescricao("");
     setValorCentavos(0);
     setPrazoMeses(1);
-    setInstanciaSelecionada(null);
     setErro("");
+    setErroDescricao("");
   }
 
   function fecharTudo() {
-    limparParaProximo();
+    limparCamposMantendoInstancia();
+    setInstanciaSelecionada(null);
     onFechar();
   }
 
@@ -54,6 +61,11 @@ export function LancamentoRapidoDrawer({
 
     if (!instanciaSelecionada) {
       setErro("Selecione uma instância para registrar.");
+      return;
+    }
+    const descricaoTratada = descricao.trim();
+    if (!descricaoTratada) {
+      setErroDescricao("Informe uma descrição.");
       return;
     }
     const erroValor = validarValorCentavos(valorCentavos);
@@ -65,10 +77,15 @@ export function LancamentoRapidoDrawer({
 
     setSalvando(true);
     setErro("");
+    setErroDescricao("");
     try {
+      // Mesmo campo/modelo de descricao dos lancamentos normais
+      // (baseSchema.descricao em backend/src/routes/lancamentos.js) — nao ha
+      // estrutura paralela, o texto digitado aqui e' o que aparece depois no
+      // historico/listagem de Lancamentos.
       const payload = {
         instanciaId: instanciaSelecionada.id,
-        descricao: instanciaSelecionada.nome,
+        descricao: descricaoTratada,
         valor: valorCentavos / 100,
         tipo: "temporario" as const,
         parcelas,
@@ -81,10 +98,10 @@ export function LancamentoRapidoDrawer({
       await enqueuarCriacaoLancamento(usuario.id, payload);
       tentarSincronizar(usuario.id);
 
-      onToast(`${instanciaSelecionada.nome} · registrado.`);
+      onToast(`${descricaoTratada} · registrado.`);
 
       if (manterAberto) {
-        limparParaProximo();
+        limparCamposMantendoInstancia();
       } else {
         fecharTudo();
       }
@@ -102,44 +119,63 @@ export function LancamentoRapidoDrawer({
         onClick={fecharTudo}
         aria-hidden
       />
-      <div className="card-dominium relative z-50 w-full max-w-sm rounded-b-none p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:rounded-b-2xl">
-        <div className="mb-4 flex items-center justify-between">
+      <div className="card-dominium relative z-50 flex max-h-[90dvh] w-full max-w-sm flex-col rounded-b-none p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:rounded-b-2xl">
+        <div className="mb-4 flex shrink-0 items-center justify-between">
           <h2 className="font-brand text-lg text-cream-100">Lançamento rápido</h2>
           <button onClick={fecharTudo} aria-label="Fechar" className="p-1 text-cream-100/50 hover:text-cream-100">
             <X size={18} />
           </button>
         </div>
 
-        <p className="mb-2 text-sm text-cream-100/70">Instância</p>
-        <div className="mb-4 grid grid-cols-3 gap-2">
-          {instanciasGasto.map((i) => (
-            <button
-              key={i.id}
-              type="button"
-              onClick={() => setInstanciaSelecionada(i)}
-              className={`flex flex-col items-center gap-1 rounded-xl border p-2.5 text-center ${
-                instanciaSelecionada?.id === i.id ? "border-gold-500 bg-gold-500/10" : "border-navy-700"
-              }`}
-            >
-              <span className="h-3 w-3 rounded-full" style={{ background: i.cor }} />
-              <span className="w-full truncate text-[11px] text-cream-100/80">{i.nome}</span>
-            </button>
-          ))}
-          {instanciasGasto.length === 0 && (
-            <p className="col-span-3 py-2 text-center text-xs text-cream-100/50">
-              Nenhuma instância de gasto cadastrada.
-            </p>
-          )}
+        {/* Area rolavel: com o teclado mobile aberto, a viewport visivel
+            encolhe (max-h-[90dvh] acompanha isso) — o conteudo rola aqui
+            dentro em vez de empurrar os botoes de salvar pra fora da tela. */}
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <p className="mb-2 text-sm text-cream-100/70">Instância</p>
+          <div className="mb-4 grid grid-cols-3 gap-2">
+            {instanciasGasto.map((i) => (
+              <button
+                key={i.id}
+                type="button"
+                onClick={() => setInstanciaSelecionada(i)}
+                className={`flex flex-col items-center gap-1 rounded-xl border p-2.5 text-center ${
+                  instanciaSelecionada?.id === i.id ? "border-gold-500 bg-gold-500/10" : "border-navy-700"
+                }`}
+              >
+                <span className="h-3 w-3 rounded-full" style={{ background: i.cor }} />
+                <span className="w-full truncate text-[11px] text-cream-100/80">{i.nome}</span>
+              </button>
+            ))}
+            {instanciasGasto.length === 0 && (
+              <p className="col-span-3 py-2 text-center text-xs text-cream-100/50">
+                Nenhuma instância de gasto cadastrada.
+              </p>
+            )}
+          </div>
+
+          <div className="mb-4">
+            <label className="mb-1 block text-sm text-cream-100/80">Descrição</label>
+            <input
+              className="input-dominium"
+              value={descricao}
+              onChange={(e) => {
+                setDescricao(e.target.value);
+                setErroDescricao("");
+              }}
+              placeholder="Ex.: Supermercado, mensalidade, compra notebook..."
+            />
+            {erroDescricao && <p className="mt-1 text-xs text-danger">{erroDescricao}</p>}
+          </div>
+
+          <div className="mb-2 grid grid-cols-2 gap-3">
+            <CampoMoeda label="Valor" valorCentavos={valorCentavos} onChange={setValorCentavos} />
+            <CampoPrazoMeses label="Parcelas" value={prazoMeses} onChange={setPrazoMeses} />
+          </div>
+
+          {erro && <p className="mt-2 text-sm text-danger">{erro}</p>}
         </div>
 
-        <div className="mb-4 grid grid-cols-2 gap-3">
-          <CampoMoeda label="Valor" valorCentavos={valorCentavos} onChange={setValorCentavos} autoFocus />
-          <CampoPrazoMeses label="Parcelas" value={prazoMeses} onChange={setPrazoMeses} />
-        </div>
-
-        {erro && <p className="mb-3 text-sm text-danger">{erro}</p>}
-
-        <div className="grid grid-cols-2 gap-2">
+        <div className="mt-4 grid shrink-0 grid-cols-2 gap-2">
           <button
             type="button"
             onClick={() => salvar(false)}
