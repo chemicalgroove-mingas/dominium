@@ -70,6 +70,18 @@ projeto_DOMINIUM/
 └── PROMPT_DOMINIUM.md    # Especificação do produto
 ```
 
+## PWA (instalável)
+
+O frontend é instalável como app (ícone na tela inicial, tela cheia, splash) — Fase 1 do PWA:
+só a casca do app (HTML/CSS/JS/ícones) é cacheada por um service worker manual
+(`frontend/public/sw.js`), desabilitado em `npm run dev`. **Nenhuma resposta de `/api/*` passa
+pelo service worker** — dado financeiro é sempre buscado direto na rede; se não houver rede, o
+app mostra "Sem conexão" (ver `OfflineBanner`) em vez de exibir um saldo desatualizado do cache.
+
+Registrar lançamento offline **não é suportado nesta fase** — isso é a Fase 2 (fila de
+sincronização, IndexedDB), ainda não implementada. Offline aqui significa apenas: o app abre
+(casca em cache) mas os dados não carregam até reconectar.
+
 ## Migrando para Supabase + deploy no Vercel
 
 1. Criar um projeto no Supabase e pegar a connection string do *connection pooler*
