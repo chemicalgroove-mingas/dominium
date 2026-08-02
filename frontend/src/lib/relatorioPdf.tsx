@@ -1,19 +1,16 @@
 import { formatarMoeda } from "@/lib/format";
-import { formatarMesLabel, somarMeses } from "@/lib/mes";
+import { formatarMesLabel } from "@/lib/mes";
 import { LOGO_DOMINIUM } from "@/lib/dominiumLogoBase64";
-import type { InstanciaRelatorio, Janela, RelatorioData } from "@/lib/types";
+import type { InstanciaRelatorio, RelatorioData } from "@/lib/types";
 
-const NUMERO_MESES_JANELA: Record<Janela, number> = { mes: 1, "3m": 3, "6m": 6, "12m": 12 };
-
-// Espelha o mesmo recorte que a tabela ja mostra hoje: mesReferencia e' a
-// ancora (entra na contagem) e o intervalo vai pra frente. mesFinal =
-// mesReferencia + (N-1) meses — nao muda a direcao do recorte de dados, so
-// deixa isso explicito no texto em vez do vago "a partir de".
-function construirDescritorPeriodo(janela: Janela, mesReferencia: string) {
-  const meses = NUMERO_MESES_JANELA[janela];
-  if (meses <= 1) return `Referência: ${formatarMesLabel(mesReferencia)}`;
-  const mesFinal = somarMeses(mesReferencia, meses - 1);
-  return `Referência: de ${formatarMesLabel(mesReferencia)} a ${formatarMesLabel(mesFinal)}`;
+// Usa os limites REAIS do recorte, ja calculados pelo backend (resumo.inicioJanela/
+// fimJanela — ver calcularResumo/limitesJanela), em vez de recalcular "pra frente"
+// a partir de mesReferencia aqui. Critico pro relatorio "passado": mesReferencia
+// e' o mes final nesse caso, entao qualquer formula fixa "mesReferencia + N-1"
+// mostraria o intervalo errado. O backend e' a fonte de verdade da direcao.
+function construirDescritorPeriodo(inicioJanela: string, fimJanela: string) {
+  if (inicioJanela === fimJanela) return `Referência: ${formatarMesLabel(inicioJanela)}`;
+  return `Referência: de ${formatarMesLabel(inicioJanela)} a ${formatarMesLabel(fimJanela)}`;
 }
 
 function agruparSecoes(porInstancia: InstanciaRelatorio[]) {
@@ -75,7 +72,7 @@ export async function gerarRelatorioPdfBlob(dados: RelatorioData): Promise<Blob>
   const { resumo, porInstancia } = dados;
   const secoes = agruparSecoes(porInstancia);
   const mostrarProjecao = resumo.janela !== "mes";
-  const descritorPeriodo = construirDescritorPeriodo(resumo.janela, resumo.mesReferencia);
+  const descritorPeriodo = construirDescritorPeriodo(resumo.inicioJanela, resumo.fimJanela);
 
   type ItemResumo = { label: string; valor: string; negativo: boolean };
   const resumoItens: ItemResumo[] = [

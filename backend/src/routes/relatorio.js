@@ -19,6 +19,7 @@ router.get('/', asyncHandler(async (req, res) => {
     ? String(req.query.mesReferencia)
     : mesAtual();
   const janela = req.query.janela && janelaValida(String(req.query.janela)) ? String(req.query.janela) : 'mes';
+  const direcao = req.query.direcao === 'passado' ? 'passado' : 'futuro';
 
   const [instancias, lancamentos, investimentos] = await Promise.all([
     prisma.instancia.findMany({ where: { usuarioId } }),
@@ -26,9 +27,9 @@ router.get('/', asyncHandler(async (req, res) => {
     prisma.investimento.findMany({ where: { usuarioId } }),
   ]);
 
-  const resumo = calcularResumo({ instancias, lancamentos, investimentos, mesReferencia: ref, janela });
+  const resumo = calcularResumo({ instancias, lancamentos, investimentos, mesReferencia: ref, janela, direcao });
 
-  const [inicioJanela, fimJanela] = limitesJanela(ref, janela);
+  const [inicioJanela, fimJanela] = limitesJanela(ref, janela, direcao);
   const lancamentosPorInstancia = new Map();
   for (const l of lancamentos) {
     if (!lancamentosPorInstancia.has(l.instanciaId)) lancamentosPorInstancia.set(l.instanciaId, []);

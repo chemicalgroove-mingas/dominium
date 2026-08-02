@@ -147,9 +147,14 @@ export type PontoEvolucaoMensal = {
 
 export type PontoSaldo = { mes: string; saldoAcumulado: number };
 
+export type Direcao = "passado" | "futuro";
+
 export type DashboardData = {
   janela: Janela;
   mesReferencia: string;
+  direcao: Direcao;
+  inicioJanela: string;
+  fimJanela: string;
   receitaPeriodo: number;
   despesaPeriodo: number;
   saldoPeriodo: number;

@@ -7,8 +7,15 @@ function janelaValida(chave) {
 }
 
 // Retorna [inicio, fim] (inclusive) da janela a partir de um mes de referencia.
-function limitesJanela(mesReferencia, janela) {
+// direcao='futuro' (default, preserva todo chamador existente): mesReferencia
+// e' o primeiro mes, janela vai pra frente. direcao='passado': mesReferencia
+// e' o ultimo mes, janela vai pra tras — em ambos os casos a ancora
+// (mesReferencia) fica incluida no intervalo.
+function limitesJanela(mesReferencia, janela, direcao = 'futuro') {
   const meses = JANELAS[janela] || JANELAS.mes;
+  if (direcao === 'passado') {
+    return [somarMeses(mesReferencia, -(meses - 1)), mesReferencia];
+  }
   return [mesReferencia, somarMeses(mesReferencia, meses - 1)];
 }
 
