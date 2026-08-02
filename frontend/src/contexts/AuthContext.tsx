@@ -77,6 +77,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = useCallback(async () => {
     await api.post("/api/auth/logout");
     setUsuario(null);
+    // Limpa o cache do service worker por garantia (so guarda app shell, nunca
+    // dados, mas evita residuo de sessao anterior em dispositivo compartilhado).
+    if (typeof caches !== "undefined") {
+      try {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((key) => caches.delete(key)));
+      } catch {
+        // ignora — limpeza de cache nao deve bloquear o logout
+      }
+    }
     window.location.href = "/login";
   }, []);
 

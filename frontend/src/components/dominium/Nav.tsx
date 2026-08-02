@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LayoutDashboard, ListChecks, Receipt, PiggyBank, LogOut, Users, Ticket, type LucideIcon } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { InstallAppButton } from "@/components/dominium/InstallAppButton";
 
 export type ItemNav = { href: string; label: string; Icon: LucideIcon };
 
@@ -22,7 +23,10 @@ export const ITENS_ADMIN: ItemNav[] = [
 export function BottomNav({ itens = ITENS_FINANCEIRO }: { itens?: ItemNav[] }) {
   const pathname = usePathname();
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-30 flex border-t border-navy-700 bg-navy-800 sm:hidden">
+    <nav
+      className="fixed inset-x-0 bottom-0 z-30 flex border-t border-navy-700 bg-navy-800 sm:hidden"
+      style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+    >
       {itens.map(({ href, label, Icon }) => {
         const ativo = pathname.startsWith(href);
         return (
@@ -69,6 +73,9 @@ export function Sidebar({ itens = ITENS_FINANCEIRO }: { itens?: ItemNav[] }) {
           );
         })}
       </nav>
+      <div className="mb-4">
+        <InstallAppButton />
+      </div>
       <div className="border-t border-navy-700 pt-4 text-sm">
         <p className="mb-2 truncate text-cream-100/70">{usuario?.nome}</p>
         <button
