@@ -3,6 +3,8 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import type { Usuario } from "@/lib/types";
+import { limparDadosLocaisDoUsuario, listarNaoConcluidas } from "@/lib/offline/outbox";
+import { cancelarTentativasAgendadas, tentarSincronizar } from "@/lib/offline/syncManager";
 
 type AuthContextValue = {
   usuario: Usuario | null;
@@ -75,6 +77,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const logout = useCallback(async () => {
+    if (usuario) {
+      const pendentes = await listarNaoConcluidas(usuario.id);
+      if (pendentes.length > 0) {
+        const tentarAgora = window.confirm(
+          `Você tem ${pendentes.length} lançamento(s) ainda não sincronizado(s). ` +
+            "Clique OK para tentar sincronizar agora, ou Cancelar para decidir sair mesmo assim."
+        );
+        if (tentarAgora) {
+          await tentarSincronizar(usuario.id);
+          const restantes = await listarNaoConcluidas(usuario.id);
+          if (restantes.length > 0) {
+            window.alert(
+              "Ainda não deu pra sincronizar (sem conexão ou erro). Você continua logado — tente de novo quando a rede voltar."
+            );
+            return;
+          }
+        } else {
+          const descartar = window.confirm(
+            `Sair mesmo assim? ${pendentes.length} lançamento(s) pendente(s) serão perdidos.`
+          );
+          if (!descartar) return;
+        }
+      }
+      cancelarTentativasAgendadas(usuario.id);
+      await limparDadosLocaisDoUsuario(usuario.id);
+    }
+
     await api.post("/api/auth/logout");
     setUsuario(null);
     // Limpa o cache do service worker por garantia (so guarda app shell, nunca
@@ -88,7 +117,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
     window.location.href = "/login";
-  }, []);
+  }, [usuario]);
 
   return (
     <AuthContext.Provider value={{ usuario, carregando, login, cadastrar, logout, recarregar }}>

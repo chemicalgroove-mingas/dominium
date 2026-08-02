@@ -7,6 +7,7 @@ import { InstanciasProvider } from "@/contexts/InstanciasContext";
 import { RecorteProvider } from "@/contexts/RecorteContext";
 import { BottomNav, Sidebar } from "@/components/dominium/Nav";
 import { InstallAppButton } from "@/components/dominium/InstallAppButton";
+import { OfflineSyncBootstrap } from "@/components/dominium/OfflineSyncBootstrap";
 import { LogOut } from "lucide-react";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -36,6 +37,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <InstanciasProvider>
       <RecorteProvider>
+        <OfflineSyncBootstrap />
         <div className="flex min-h-screen flex-1">
           <Sidebar />
           <div className="flex flex-1 flex-col">

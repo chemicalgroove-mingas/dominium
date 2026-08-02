@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { Download, X } from "lucide-react";
 
 type BeforeInstallPromptEvent = Event & {
@@ -14,6 +14,18 @@ function isStandalone() {
   return window.matchMedia("(display-mode: standalone)").matches || nav.standalone === true;
 }
 
+function inscreverStandalone(retorno: () => void) {
+  const mql = window.matchMedia("(display-mode: standalone)");
+  mql.addEventListener("change", retorno);
+  return () => mql.removeEventListener("change", retorno);
+}
+
+const obterStandaloneServidor = () => true;
+
+function useEmStandalone() {
+  return useSyncExternalStore(inscreverStandalone, isStandalone, obterStandaloneServidor);
+}
+
 function isIosSafari() {
   if (typeof window === "undefined") return false;
   const ua = window.navigator.userAgent;
@@ -24,13 +36,11 @@ function isIosSafari() {
 
 export function InstallAppButton() {
   const [promptEvent, setPromptEvent] = useState<BeforeInstallPromptEvent | null>(null);
-  const [standalone, setStandalone] = useState(true);
+  const standalone = useEmStandalone();
   const [showIosHint, setShowIosHint] = useState(false);
   const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
-    setStandalone(isStandalone());
-
     const handler = (event: Event) => {
       event.preventDefault();
       setPromptEvent(event as BeforeInstallPromptEvent);

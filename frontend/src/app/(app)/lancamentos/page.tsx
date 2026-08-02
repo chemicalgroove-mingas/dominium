@@ -1,12 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Pencil, Plus, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowLeft, Clock, Pencil, Plus, Trash2 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
 import { useInstancias } from "@/contexts/InstanciasContext";
 import { useRecorte } from "@/contexts/RecorteContext";
 import { JanelaSelector } from "@/components/dominium/JanelaSelector";
 import { ResumoDashboard } from "@/components/dominium/ResumoDashboard";
+import { SyncStatusBadge } from "@/components/dominium/SyncStatusBadge";
 import { CampoMoeda } from "@/components/dominium/CampoMoeda";
 import { CampoMes } from "@/components/dominium/CampoMes";
 import { CampoPrazoMeses } from "@/components/dominium/CampoPrazoMeses";
@@ -15,6 +17,11 @@ import { formatarMoeda } from "@/lib/format";
 import { formatarMesLabel, somarMeses } from "@/lib/mes";
 import { centavosParaNumero, numeroParaCentavos } from "@/lib/moeda";
 import { PALETA_INSTANCIA, COR_SUGERIDA_POR_GRUPO } from "@/lib/cores";
+import { enqueuarCriacaoLancamento, listarNaoConcluidas } from "@/lib/offline/outbox";
+import { construirLancamentoOtimista } from "@/lib/offline/optimistic";
+import { tentarSincronizar } from "@/lib/offline/syncManager";
+import { useOutboxPendentes } from "@/lib/offline/useOutboxPendentes";
+import type { LancamentoLocal } from "@/lib/offline/types";
 import type { DashboardData, Grupo, Instancia, Lancamento, TipoLancamento } from "@/lib/types";
 
 const FORM_VAZIO = {
@@ -26,7 +33,7 @@ const FORM_VAZIO = {
   observacoes: "",
 };
 
-type DadosGaveta = { lancamentos: Lancamento[]; totalJanela: number; carregando: boolean };
+type DadosGaveta = { lancamentos: LancamentoLocal[]; totalJanela: number; carregando: boolean };
 
 const LABEL_LANCAR: Record<Grupo, string> = {
   gasto: "Lançar gasto",
@@ -41,8 +48,11 @@ const LABEL_GRUPO_BOTAO: Record<Grupo, string> = {
 };
 
 export default function LancamentosPage() {
+  const { usuario } = useAuth();
   const { instancias, recarregar } = useInstancias();
   const { janela, mesReferencia } = useRecorte();
+  const pendentesUsuario = useOutboxPendentes(usuario?.id);
+  const pendentesAnterioresRef = useRef(0);
 
   const [grupo, setGrupo] = useState<Grupo>("gasto");
   const [estado, setEstado] = useState<"geral" | "foco">("geral");
@@ -65,8 +75,12 @@ export default function LancamentosPage() {
   );
 
   const carregarResumo = useCallback(async () => {
-    const data = await api.get<DashboardData>(`/api/dashboard?janela=${janela}&mesReferencia=${mesReferencia}`);
-    setResumo(data);
+    try {
+      const data = await api.get<DashboardData>(`/api/dashboard?janela=${janela}&mesReferencia=${mesReferencia}`);
+      setResumo(data);
+    } catch {
+      // Offline/erro de rede: mantém o resumo que já estava em tela.
+    }
   }, [janela, mesReferencia]);
 
   const carregarGavetaDe = useCallback(
@@ -75,15 +89,39 @@ export default function LancamentosPage() {
         ...prev,
         [instancia.id]: { ...(prev[instancia.id] || { lancamentos: [], totalJanela: 0 }), carregando: true },
       }));
-      const data = await api.get<{ lancamentos: Lancamento[]; totalJanela: number }>(
-        `/api/lancamentos?instanciaId=${instancia.id}&mesReferencia=${mesReferencia}&janela=${janela}`
-      );
-      setGavetas((prev) => ({
-        ...prev,
-        [instancia.id]: { lancamentos: data.lancamentos, totalJanela: data.totalJanela, carregando: false },
-      }));
+
+      const pendentes = usuario ? await listarNaoConcluidas(usuario.id) : [];
+      const otimistas = pendentes
+        .filter((op) => op.payload.instanciaId === instancia.id)
+        .map(construirLancamentoOtimista);
+
+      try {
+        const data = await api.get<{ lancamentos: Lancamento[]; totalJanela: number }>(
+          `/api/lancamentos?instanciaId=${instancia.id}&mesReferencia=${mesReferencia}&janela=${janela}`
+        );
+        const sincronizados: LancamentoLocal[] = data.lancamentos.map((l) => ({ ...l, syncStatus: "synced" }));
+        setGavetas((prev) => ({
+          ...prev,
+          [instancia.id]: {
+            lancamentos: [...otimistas, ...sincronizados],
+            totalJanela: data.totalJanela,
+            carregando: false,
+          },
+        }));
+      } catch {
+        // Offline: sem lista do servidor, mas o que já foi criado localmente
+        // (ainda pendente de sincronizar) continua visível.
+        setGavetas((prev) => ({
+          ...prev,
+          [instancia.id]: {
+            lancamentos: otimistas.length > 0 ? otimistas : prev[instancia.id]?.lancamentos ?? [],
+            totalJanela: prev[instancia.id]?.totalJanela ?? 0,
+            carregando: false,
+          },
+        }));
+      }
     },
-    [janela, mesReferencia]
+    [janela, mesReferencia, usuario]
   );
 
   const carregarTodasGavetas = useCallback(async () => {
@@ -97,6 +135,16 @@ export default function LancamentosPage() {
   useEffect(() => {
     carregarResumo();
   }, [carregarResumo]);
+
+  // Quando um item pendente termina de sincronizar (a contagem cai), busca de
+  // novo do servidor pra reconciliar totais/valores derivados (pagas, etc.).
+  useEffect(() => {
+    if (pendentesUsuario.length < pendentesAnterioresRef.current) {
+      carregarTodasGavetas();
+      carregarResumo();
+    }
+    pendentesAnterioresRef.current = pendentesUsuario.length;
+  }, [pendentesUsuario.length, carregarTodasGavetas, carregarResumo]);
 
   function abrirFoco(instancia: Instancia) {
     setInstanciaFoco(instancia);
@@ -178,21 +226,38 @@ export default function LancamentosPage() {
       observacoes: form.observacoes || null,
     };
 
-    setSalvando(true);
-    try {
-      if (lancamentoEditando) {
+    // Edição continua online-only nesta fase (só a criação é offline-first).
+    if (lancamentoEditando) {
+      setSalvando(true);
+      try {
         await api.put(`/api/lancamentos/${lancamentoEditando.id}/completo`, payload);
-      } else {
-        await api.post("/api/lancamentos", payload);
+        setForm(FORM_VAZIO);
+        await Promise.all([carregarTodasGavetas(), carregarResumo()]);
+        voltarParaGeral();
+      } catch (err) {
+        setErroForm(err instanceof ApiError ? err.message : "Nao foi possivel salvar o lancamento.");
+      } finally {
+        setSalvando(false);
       }
-      setForm(FORM_VAZIO);
-      await Promise.all([carregarTodasGavetas(), carregarResumo()]);
-      voltarParaGeral();
-    } catch (err) {
-      setErroForm(err instanceof ApiError ? err.message : "Nao foi possivel salvar o lancamento.");
-    } finally {
-      setSalvando(false);
+      return;
     }
+
+    if (!usuario) return;
+
+    // Criação: otimista. Entra na tela na hora, fica marcada como pendente,
+    // e sincroniza sozinha (agora, se der, ou quando a rede voltar).
+    const operacao = await enqueuarCriacaoLancamento(usuario.id, payload);
+    const otimista = construirLancamentoOtimista(operacao);
+    setGavetas((prev) => {
+      const atual = prev[instanciaFoco.id] || { lancamentos: [], totalJanela: 0, carregando: false };
+      return {
+        ...prev,
+        [instanciaFoco.id]: { ...atual, lancamentos: [otimista, ...atual.lancamentos] },
+      };
+    });
+    setForm(FORM_VAZIO);
+    voltarParaGeral();
+    tentarSincronizar(usuario.id);
   }
 
   async function excluirLancamento(id: string) {
@@ -217,7 +282,10 @@ export default function LancamentosPage() {
           <h1 className="font-brand text-2xl text-cream-100">Lançamentos</h1>
           <p className="text-xs text-cream-100/50">Referência: {formatarMesLabel(mesReferencia)}</p>
         </div>
-        <JanelaSelector />
+        <div className="flex items-center gap-2">
+          <SyncStatusBadge />
+          <JanelaSelector />
+        </div>
       </div>
 
       {resumo && (
@@ -533,7 +601,7 @@ function GavetaCard({
   onLancar?: () => void;
   onEditarInstancia: () => void;
   onExcluirInstancia: () => void;
-  onEditarLancamento: (l: Lancamento) => void;
+  onEditarLancamento: (l: LancamentoLocal) => void;
   onExcluirLancamento: (id: string) => void;
   sticky?: boolean;
 }) {
@@ -594,35 +662,55 @@ function GavetaCard({
       )}
 
       <div className="flex flex-col gap-2 lg:max-h-[calc(100vh-14rem)] lg:overflow-y-auto lg:pr-1">
-        {lancamentos.map((l) => (
-          <div key={l.id} className="flex items-center gap-3 border-t border-navy-700 pt-2 first:border-t-0 first:pt-0">
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm text-cream-100">{l.descricao}</p>
-              {l.tipo === "fixo" ? (
-                <p className="tabular text-xs text-cream-100/60">{formatarMoeda(l.valor)}/mês · FIXO</p>
-              ) : (
-                <p className="tabular text-xs text-cream-100/60">
-                  {formatarMoeda(l.valor)}/parcela · {l.restantes}/{l.parcelas} restantes · resta{" "}
-                  {formatarMoeda(l.totalRestante || 0)}
+        {lancamentos.map((l) => {
+          const sincronizado = !l.syncStatus || l.syncStatus === "synced";
+          return (
+            <div
+              key={l.id}
+              className={`flex items-center gap-3 border-t border-navy-700 pt-2 first:border-t-0 first:pt-0 ${
+                sincronizado ? "" : "opacity-60"
+              }`}
+            >
+              <div className="min-w-0 flex-1">
+                <p className="flex items-center gap-1.5 truncate text-sm text-cream-100">
+                  {l.descricao}
+                  {!sincronizado && (
+                    <span className="flex shrink-0 items-center gap-1 text-[10px] font-normal text-gold-300/80">
+                      <Clock size={11} />
+                      {l.syncStatus === "failed" ? "falha ao sincronizar" : "pendente"}
+                    </span>
+                  )}
                 </p>
+                {l.tipo === "fixo" ? (
+                  <p className="tabular text-xs text-cream-100/60">{formatarMoeda(l.valor)}/mês · FIXO</p>
+                ) : (
+                  <p className="tabular text-xs text-cream-100/60">
+                    {formatarMoeda(l.valor)}/parcela · {l.restantes}/{l.parcelas} restantes · resta{" "}
+                    {formatarMoeda(l.totalRestante || 0)}
+                  </p>
+                )}
+              </div>
+              {sincronizado && (
+                <>
+                  <button
+                    onClick={() => onEditarLancamento(l)}
+                    className="p-2 text-cream-100/40 hover:text-gold-300"
+                    aria-label="Editar lançamento"
+                  >
+                    <Pencil size={15} />
+                  </button>
+                  <button
+                    onClick={() => onExcluirLancamento(l.id)}
+                    className="p-2 text-cream-100/40 hover:text-danger"
+                    aria-label="Excluir lançamento"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </>
               )}
             </div>
-            <button
-              onClick={() => onEditarLancamento(l)}
-              className="p-2 text-cream-100/40 hover:text-gold-300"
-              aria-label="Editar lançamento"
-            >
-              <Pencil size={15} />
-            </button>
-            <button
-              onClick={() => onExcluirLancamento(l.id)}
-              className="p-2 text-cream-100/40 hover:text-danger"
-              aria-label="Excluir lançamento"
-            >
-              <Trash2 size={15} />
-            </button>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
