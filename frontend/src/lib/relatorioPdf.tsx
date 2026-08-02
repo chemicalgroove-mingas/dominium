@@ -116,18 +116,18 @@ export async function gerarRelatorioPdfBlob(dados: RelatorioData): Promise<Blob>
       heroTitulo: { fontFamily: fontTitulo, fontWeight: 600, fontSize: 25, color: CREAM },
       regua: { width: 54, height: 2, backgroundColor: GOLD, marginTop: 8, marginBottom: 8 },
       heroSubtitulo: { fontFamily: "Helvetica", fontStyle: "italic", fontSize: 10, color: "#B9C4D1" },
+      // A imagem-fonte (LOGO_DOMINIUM) ja e' um circulo pronto — fundo navy e
+      // anel proprios, recortado com transparencia por fora. Nao aplicar
+      // borderRadius/border aqui: isso criaria um segundo anel dourado por
+      // cima do que a propria imagem ja tem.
       medalhao: {
         width: 74,
         height: 74,
-        borderRadius: 37,
-        borderWidth: 1.5,
-        borderColor: GOLD,
         alignItems: "center",
         justifyContent: "center",
-        overflow: "hidden",
         flexShrink: 0,
       },
-      logoImg: { width: 74, height: 74 },
+      logoImg: { width: 74, height: 74, objectFit: "contain" },
       corpo: { paddingHorizontal: 34, paddingTop: 24, paddingBottom: 60 },
       secaoTitulo: {
         fontFamily: "Helvetica",
