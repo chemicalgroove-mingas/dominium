@@ -1,20 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Clock, Pencil, Plus, Trash2 } from "lucide-react";
+import { Clock, Pencil, Plus, Trash2 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useInstancias } from "@/contexts/InstanciasContext";
 import { useRecorte } from "@/contexts/RecorteContext";
 import { JanelaSelector } from "@/components/dominium/JanelaSelector";
-import { ResumoDashboard } from "@/components/dominium/ResumoDashboard";
 import { SyncStatusBadge } from "@/components/dominium/SyncStatusBadge";
 import { CampoMoeda } from "@/components/dominium/CampoMoeda";
 import { CampoMes } from "@/components/dominium/CampoMes";
 import { CampoPrazoMeses } from "@/components/dominium/CampoPrazoMeses";
 import { SeletorMesReferencia } from "@/components/dominium/SeletorMesReferencia";
 import { formatarMoeda } from "@/lib/format";
-import { formatarMesLabel, somarMeses } from "@/lib/mes";
+import { diferencaEmMeses, formatarMesInline, formatarMesLabel, somarMeses } from "@/lib/mes";
 import { centavosParaNumero, numeroParaCentavos } from "@/lib/moeda";
 import { validarValorCentavos } from "@/lib/validacaoLancamento";
 import { PALETA_INSTANCIA, COR_SUGERIDA_POR_GRUPO } from "@/lib/cores";
@@ -24,7 +23,20 @@ import { tentarSincronizar } from "@/lib/offline/syncManager";
 import { useOutboxPendentes } from "@/lib/offline/useOutboxPendentes";
 import { lerSnapshot, salvarSnapshot } from "@/lib/offline/snapshots";
 import type { LancamentoLocal } from "@/lib/offline/types";
-import type { DashboardData, Grupo, Instancia, Lancamento, TipoLancamento } from "@/lib/types";
+import type { Grupo, Instancia, Lancamento, TipoLancamento } from "@/lib/types";
+
+// Espelha o mesmo criterio de competencia do backend
+// (intervaloEfetivoNaJanela/competenciaDoLancamento em
+// backend/src/utils/projecao.js e backend/src/routes/lancamentos.js): o
+// lancamento tem efeito no mes-alvo se mesInicio <= mesAlvo <= mesFim (fixo
+// nao tem mesFim, vai ate o infinito). Usado so pra decidir se o seletor de
+// mes precisa pular apos criar um lancamento — nunca pra calcular valores.
+function produzParcelaNoMes(mesInicio: string, tipo: TipoLancamento, parcelas: number | null, mesAlvo: string) {
+  if (diferencaEmMeses(mesInicio, mesAlvo) < 0) return false;
+  if (tipo === "fixo") return true;
+  const mesFim = somarMeses(mesInicio, (parcelas || 1) - 1);
+  return diferencaEmMeses(mesAlvo, mesFim) <= 0;
+}
 
 const FORM_VAZIO = {
   descricao: "",
@@ -37,12 +49,6 @@ const FORM_VAZIO = {
 
 type DadosGaveta = { lancamentos: LancamentoLocal[]; totalJanela: number; carregando: boolean };
 
-const LABEL_LANCAR: Record<Grupo, string> = {
-  gasto: "Lançar gasto",
-  receita: "Lançar receita",
-  investimento: "Lançar",
-};
-
 const LABEL_GRUPO_BOTAO: Record<Grupo, string> = {
   gasto: "Gastos",
   receita: "Receitas",
@@ -52,13 +58,12 @@ const LABEL_GRUPO_BOTAO: Record<Grupo, string> = {
 export default function LancamentosPage() {
   const { usuario } = useAuth();
   const { instancias, recarregar } = useInstancias();
-  const { janela, mesReferencia } = useRecorte();
+  const { janela, mesReferencia, setMesReferencia } = useRecorte();
   const pendentesUsuario = useOutboxPendentes(usuario?.id);
   const pendentesAnterioresRef = useRef(0);
 
   const [grupo, setGrupo] = useState<Grupo>("gasto");
-  const [estado, setEstado] = useState<"geral" | "foco">("geral");
-  const [instanciaFoco, setInstanciaFoco] = useState<Instancia | null>(null);
+  const [instanciaSelecionadaId, setInstanciaSelecionadaId] = useState<string | null>(null);
   const [lancamentoEditando, setLancamentoEditando] = useState<Lancamento | null>(null);
   const [novaInstancia, setNovaInstancia] = useState<{ nome: string; cor: string } | null>(null);
   const [instanciaEditando, setInstanciaEditando] = useState<{ id: string; nome: string; cor: string } | null>(null);
@@ -69,21 +74,22 @@ export default function LancamentosPage() {
   const [salvando, setSalvando] = useState(false);
 
   const [gavetas, setGavetas] = useState<Record<string, DadosGaveta>>({});
-  const [resumo, setResumo] = useState<DashboardData | null>(null);
 
   const instanciasDoGrupo = useMemo(
     () => instancias.filter((i) => i.grupo === grupo && i.ativa),
     [instancias, grupo]
   );
 
-  const carregarResumo = useCallback(async () => {
-    try {
-      const data = await api.get<DashboardData>(`/api/dashboard?janela=${janela}&mesReferencia=${mesReferencia}`);
-      setResumo(data);
-    } catch {
-      // Offline/erro de rede: mantém o resumo que já estava em tela.
-    }
-  }, [janela, mesReferencia]);
+  // Instância efetivamente selecionada na grade: a escolhida explicitamente
+  // pelo usuário, se ainda existir no grupo atual; senão a primeira do
+  // grupo. Derivado a cada render (sem estado próprio) pra não precisar de
+  // um efeito só pra manter as duas fontes em sincronia.
+  const instanciaFoco = useMemo(() => {
+    const selecionada = instanciaSelecionadaId
+      ? instanciasDoGrupo.find((i) => i.id === instanciaSelecionadaId)
+      : undefined;
+    return selecionada ?? instanciasDoGrupo[0] ?? null;
+  }, [instanciasDoGrupo, instanciaSelecionadaId]);
 
   const carregarGavetaDe = useCallback(
     async (instancia: Instancia) => {
@@ -169,30 +175,34 @@ export default function LancamentosPage() {
     carregarTodasGavetas();
   }, [carregarTodasGavetas]);
 
-  useEffect(() => {
-    carregarResumo();
-  }, [carregarResumo]);
-
   // Quando um item pendente termina de sincronizar (a contagem cai), busca de
   // novo do servidor pra reconciliar totais/valores derivados (pagas, etc.).
   useEffect(() => {
     if (pendentesUsuario.length < pendentesAnterioresRef.current) {
       carregarTodasGavetas();
-      carregarResumo();
     }
     pendentesAnterioresRef.current = pendentesUsuario.length;
-  }, [pendentesUsuario.length, carregarTodasGavetas, carregarResumo]);
+  }, [pendentesUsuario.length, carregarTodasGavetas]);
 
-  function abrirFoco(instancia: Instancia) {
-    setInstanciaFoco(instancia);
+  // Reseta o formulário quando a instância efetivamente selecionada muda de
+  // identidade — entrada inicial (assim que instanciasDoGrupo carrega), troca
+  // de grupo ou de instância pela grade. Ajuste durante a renderização (não
+  // num efeito): evita o cascading render de um setState síncrono em effect,
+  // e não interfere no formulário de edição (mesma instância, id inalterado).
+  const [ultimaInstanciaFocoId, setUltimaInstanciaFocoId] = useState<string | null>(null);
+  if ((instanciaFoco?.id ?? null) !== ultimaInstanciaFocoId) {
+    setUltimaInstanciaFocoId(instanciaFoco?.id ?? null);
     setLancamentoEditando(null);
-    setForm({ ...FORM_VAZIO, mesInicio: mesReferencia });
+    setForm(instanciaFoco ? { ...FORM_VAZIO, mesInicio: mesReferencia } : FORM_VAZIO);
     setErroForm("");
-    setEstado("foco");
+  }
+
+  function selecionarInstancia(instancia: Instancia) {
+    setInstanciaSelecionadaId(instancia.id);
   }
 
   function abrirEdicaoLancamento(instancia: Instancia, lancamento: Lancamento) {
-    setInstanciaFoco(instancia);
+    setInstanciaSelecionadaId(instancia.id);
     setLancamentoEditando(lancamento);
     setForm({
       descricao: lancamento.descricao,
@@ -203,17 +213,9 @@ export default function LancamentosPage() {
       observacoes: lancamento.observacoes || "",
     });
     setErroForm("");
-    setEstado("foco");
   }
 
   const parcelasCalculadas = form.tipo === "temporario" && form.prazoMeses ? form.prazoMeses : null;
-
-  function voltarParaGeral() {
-    setEstado("geral");
-    setInstanciaFoco(null);
-    setLancamentoEditando(null);
-    setErroForm("");
-  }
 
   async function criarInstancia(e: React.FormEvent) {
     e.preventDefault();
@@ -238,7 +240,7 @@ export default function LancamentosPage() {
     await recarregar();
   }
 
-  async function registrarLancamento(e: React.FormEvent) {
+  async function registrarLancamento(e: React.FormEvent, manterInstancia = false) {
     e.preventDefault();
     if (!instanciaFoco) return;
     setErroForm("");
@@ -269,9 +271,9 @@ export default function LancamentosPage() {
       setSalvando(true);
       try {
         await api.put(`/api/lancamentos/${lancamentoEditando.id}/completo`, payload);
-        setForm(FORM_VAZIO);
-        await Promise.all([carregarTodasGavetas(), carregarResumo()]);
-        voltarParaGeral();
+        setForm({ ...FORM_VAZIO, mesInicio: mesReferencia });
+        setLancamentoEditando(null);
+        await carregarTodasGavetas();
       } catch (err) {
         setErroForm(err instanceof ApiError ? err.message : "Nao foi possivel salvar o lancamento.");
       } finally {
@@ -282,35 +284,54 @@ export default function LancamentosPage() {
 
     if (!usuario) return;
 
+    // Regra do seletor pós-lançamento: se o mês selecionado já enxerga o
+    // lançamento recém-criado, mantém onde está; senão pula pro mês de
+    // início do lançamento, pra ele ficar sempre visível no demonstrativo.
+    const mesAlvo = produzParcelaNoMes(form.mesInicio, form.tipo, parcelasCalculadas, mesReferencia)
+      ? mesReferencia
+      : form.mesInicio;
+
     // Criação: otimista. Entra na tela na hora, fica marcada como pendente,
     // e sincroniza sozinha (agora, se der, ou quando a rede voltar).
     const operacao = await enqueuarCriacaoLancamento(usuario.id, payload);
-    const otimista = construirLancamentoOtimista(operacao, mesReferencia);
-    setGavetas((prev) => {
-      const atual = prev[instanciaFoco.id] || { lancamentos: [], totalJanela: 0, carregando: false };
-      return {
-        ...prev,
-        [instanciaFoco.id]: { ...atual, lancamentos: [otimista, ...atual.lancamentos] },
-      };
-    });
-    setForm(FORM_VAZIO);
-    voltarParaGeral();
+    if (mesAlvo === mesReferencia) {
+      const otimista = construirLancamentoOtimista(operacao, mesAlvo);
+      setGavetas((prev) => {
+        const atual = prev[instanciaFoco.id] || { lancamentos: [], totalJanela: 0, carregando: false };
+        return {
+          ...prev,
+          [instanciaFoco.id]: { ...atual, lancamentos: [otimista, ...atual.lancamentos] },
+        };
+      });
+    } else {
+      // Ao mudar mesReferencia, o efeito de carregamento de gavetas já
+      // refaz a busca (servidor + otimistas) na janela nova — não precisa
+      // remendar o estado local aqui.
+      setMesReferencia(mesAlvo);
+    }
+
+    if (manterInstancia) {
+      setForm((f) => ({ ...f, descricao: "", valorCentavos: 0 }));
+    } else {
+      setForm({ ...FORM_VAZIO, mesInicio: mesAlvo });
+    }
+    setErroForm("");
     tentarSincronizar(usuario.id);
   }
 
   async function excluirLancamento(id: string) {
     await api.delete(`/api/lancamentos/${id}`);
-    await Promise.all([carregarTodasGavetas(), carregarResumo()]);
+    await carregarTodasGavetas();
   }
 
   async function excluirInstancia() {
     if (!instanciaParaExcluir) return;
     await api.delete(`/api/instancias/${instanciaParaExcluir.id}`);
     if (instanciaFoco?.id === instanciaParaExcluir.id) {
-      voltarParaGeral();
+      setInstanciaSelecionadaId(null);
     }
     setInstanciaParaExcluir(null);
-    await Promise.all([recarregar(), carregarResumo()]);
+    await recarregar();
   }
 
   return (
@@ -326,24 +347,15 @@ export default function LancamentosPage() {
         </div>
       </div>
 
-      {resumo && (
-        <div className="mb-4">
-          <ResumoDashboard dados={resumo} compacto />
-        </div>
-      )}
-
       <div className="mb-4">
         <SeletorMesReferencia />
       </div>
 
-      <div className="mb-6 flex gap-2">
+      <div className="mb-4 flex gap-2">
         {(["gasto", "receita"] as Grupo[]).map((g) => (
           <button
             key={g}
-            onClick={() => {
-              setGrupo(g);
-              voltarParaGeral();
-            }}
+            onClick={() => setGrupo(g)}
             className={`min-h-[44px] flex-1 rounded-xl border text-sm font-medium ${
               grupo === g ? "border-gold-500 bg-gold-500/10 text-gold-300" : "border-navy-700 text-cream-100/70"
             }`}
@@ -353,153 +365,153 @@ export default function LancamentosPage() {
         ))}
       </div>
 
-      {estado === "geral" && (
-        <>
-          <div className="mb-4 grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
-            {instanciasDoGrupo.map((i) => (
-              <GavetaCard
-                key={i.id}
-                instancia={i}
-                dados={gavetas[i.id]}
-                mesReferencia={mesReferencia}
-                janela={janela}
-                labelLancar={LABEL_LANCAR[grupo]}
-                onLancar={() => abrirFoco(i)}
-                onEditarInstancia={() => setInstanciaEditando({ id: i.id, nome: i.nome, cor: i.cor })}
-                onExcluirInstancia={() => setInstanciaParaExcluir(i)}
-                onEditarLancamento={(l) => abrirEdicaoLancamento(i, l)}
-                onExcluirLancamento={excluirLancamento}
-              />
-            ))}
-          </div>
-
+      <div className="mb-6">
+        <p className="mb-2 text-sm text-cream-100/70">Instância</p>
+        <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+          {instanciasDoGrupo.map((i) => (
+            <button
+              key={i.id}
+              type="button"
+              onClick={() => selecionarInstancia(i)}
+              className={`flex flex-col items-center gap-1 rounded-xl border p-2.5 text-center ${
+                instanciaFoco?.id === i.id ? "border-gold-500 bg-gold-500/10" : "border-navy-700"
+              }`}
+            >
+              <span className="h-3 w-3 rounded-full" style={{ background: i.cor }} />
+              <span className="w-full truncate text-[11px] text-cream-100/80">{i.nome}</span>
+            </button>
+          ))}
           {instanciasDoGrupo.length === 0 && (
-            <div className="card-dominium mb-4 p-6 text-center text-sm text-cream-100/70">
+            <p className="col-span-3 py-2 text-center text-xs text-cream-100/50 sm:col-span-4">
               Nenhuma instância de {grupo === "gasto" ? "gasto" : "receita"} ainda. Crie a primeira.
-            </div>
+            </p>
           )}
+        </div>
 
-          <button
-            onClick={() => setNovaInstancia({ nome: "", cor: COR_SUGERIDA_POR_GRUPO[grupo] })}
-            className="flex w-full items-center justify-center gap-1 rounded-full border border-dashed border-gold-500/50 px-4 py-3 text-sm text-gold-300"
+        <button
+          onClick={() => setNovaInstancia({ nome: "", cor: COR_SUGERIDA_POR_GRUPO[grupo] })}
+          className="mt-2 flex w-full items-center justify-center gap-1 rounded-full border border-dashed border-gold-500/50 px-4 py-2.5 text-sm text-gold-300"
+        >
+          <Plus size={16} /> Nova instância
+        </button>
+      </div>
+
+      {instanciaFoco && (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:items-start">
+          <form
+            onSubmit={(e) => registrarLancamento(e, false)}
+            className="card-dominium flex flex-col gap-4 p-5"
           >
-            <Plus size={16} /> Nova instância
-          </button>
-        </>
-      )}
-
-      {estado === "foco" && instanciaFoco && (
-        <div>
-          <button
-            onClick={voltarParaGeral}
-            className="mb-4 flex items-center gap-1 text-sm text-cream-100/70 hover:text-gold-300"
-          >
-            <ArrowLeft size={16} /> Voltar
-          </button>
-
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:items-start">
-            <form onSubmit={registrarLancamento} className="card-dominium flex flex-col gap-4 p-5">
-              <div>
-                <label className="mb-1 block text-sm text-cream-100/80">Descrição</label>
-                <input
-                  className="input-dominium"
-                  value={form.descricao}
-                  onChange={(e) => setForm({ ...form, descricao: e.target.value })}
-                  required
-                  autoFocus
-                />
-              </div>
-
-              <CampoMoeda
-                label="Valor (parcela/mensalidade)"
-                valorCentavos={form.valorCentavos}
-                onChange={(valorCentavos) => setForm({ ...form, valorCentavos })}
+            <div>
+              <label className="mb-1 block text-sm text-cream-100/80">Descrição</label>
+              <input
+                className="input-dominium"
+                value={form.descricao}
+                onChange={(e) => setForm({ ...form, descricao: e.target.value })}
                 required
+                autoFocus
               />
+            </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setForm({ ...form, tipo: "fixo" })}
-                  className={`min-h-[44px] rounded-xl border text-sm ${
-                    form.tipo === "fixo" ? "border-gold-500 text-gold-300" : "border-navy-700 text-cream-100/60"
-                  }`}
-                >
-                  Fixo
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setForm({ ...form, tipo: "temporario" })}
-                  className={`min-h-[44px] rounded-xl border text-sm ${
-                    form.tipo === "temporario"
-                      ? "border-gold-500 text-gold-300"
-                      : "border-navy-700 text-cream-100/60"
-                  }`}
-                >
-                  Temporário
-                </button>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <CampoMes
-                  label="Mês início"
-                  value={form.mesInicio}
-                  onChange={(v) => setForm({ ...form, mesInicio: v })}
-                />
-                <CampoPrazoMeses
-                  label="Prazo (meses)"
-                  value={form.prazoMeses}
-                  onChange={(v) => setForm({ ...form, prazoMeses: v })}
-                  disabled={form.tipo === "fixo"}
-                />
-              </div>
-
-              {form.tipo === "temporario" && (
-                <p className="-mt-2 text-xs text-cream-100/50">
-                  {parcelasCalculadas && parcelasCalculadas >= 1
-                    ? `${parcelasCalculadas} parcela${parcelasCalculadas === 1 ? "" : "s"} · termina em ${formatarMesLabel(
-                        somarMeses(form.mesInicio, parcelasCalculadas - 1)
-                      )}.`
-                    : "Informe o prazo em meses."}
-                </p>
-              )}
-
-              <div>
-                <label className="mb-1 block text-sm text-cream-100/80">Observações (opcional)</label>
-                <input
-                  className="input-dominium"
-                  value={form.observacoes}
-                  onChange={(e) => setForm({ ...form, observacoes: e.target.value })}
-                />
-              </div>
-
-              {erroForm && <p className="text-sm text-danger">{erroForm}</p>}
-
-              <button type="submit" className="btn-gold" disabled={salvando}>
-                {salvando
-                  ? lancamentoEditando
-                    ? "Salvando alteração..."
-                    : "Registrando..."
-                  : lancamentoEditando
-                    ? "Alterar lançamento"
-                    : "Registrar lançamento"}
-              </button>
-            </form>
-
-            <GavetaCard
-              instancia={instanciaFoco}
-              dados={gavetas[instanciaFoco.id]}
-              mesReferencia={mesReferencia}
-              janela={janela}
-              onEditarInstancia={() =>
-                setInstanciaEditando({ id: instanciaFoco.id, nome: instanciaFoco.nome, cor: instanciaFoco.cor })
-              }
-              onExcluirInstancia={() => setInstanciaParaExcluir(instanciaFoco)}
-              onEditarLancamento={(l) => abrirEdicaoLancamento(instanciaFoco, l)}
-              onExcluirLancamento={excluirLancamento}
-              sticky
+            <CampoMoeda
+              label="Valor (parcela/mensalidade)"
+              valorCentavos={form.valorCentavos}
+              onChange={(valorCentavos) => setForm({ ...form, valorCentavos })}
+              required
             />
-          </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, tipo: "fixo" })}
+                className={`min-h-[44px] rounded-xl border text-sm ${
+                  form.tipo === "fixo" ? "border-gold-500 text-gold-300" : "border-navy-700 text-cream-100/60"
+                }`}
+              >
+                Fixo
+              </button>
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, tipo: "temporario" })}
+                className={`min-h-[44px] rounded-xl border text-sm ${
+                  form.tipo === "temporario"
+                    ? "border-gold-500 text-gold-300"
+                    : "border-navy-700 text-cream-100/60"
+                }`}
+              >
+                Temporário
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <CampoMes
+                label="Mês início"
+                value={form.mesInicio}
+                onChange={(v) => setForm({ ...form, mesInicio: v })}
+              />
+              <CampoPrazoMeses
+                label="Prazo (meses)"
+                value={form.prazoMeses}
+                onChange={(v) => setForm({ ...form, prazoMeses: v })}
+                disabled={form.tipo === "fixo"}
+              />
+            </div>
+
+            {form.tipo === "temporario" && (
+              <p className="-mt-2 text-xs text-cream-100/50">
+                {parcelasCalculadas && parcelasCalculadas >= 1
+                  ? `${parcelasCalculadas} parcela${parcelasCalculadas === 1 ? "" : "s"} · termina em ${formatarMesLabel(
+                      somarMeses(form.mesInicio, parcelasCalculadas - 1)
+                    )}.`
+                  : "Informe o prazo em meses."}
+              </p>
+            )}
+
+            <div>
+              <label className="mb-1 block text-sm text-cream-100/80">Observações (opcional)</label>
+              <input
+                className="input-dominium"
+                value={form.observacoes}
+                onChange={(e) => setForm({ ...form, observacoes: e.target.value })}
+              />
+            </div>
+
+            {erroForm && <p className="text-sm text-danger">{erroForm}</p>}
+
+            {lancamentoEditando ? (
+              <button type="submit" className="btn-gold" disabled={salvando}>
+                {salvando ? "Salvando alteração..." : "Alterar lançamento"}
+              </button>
+            ) : (
+              <div className="grid grid-cols-2 gap-2">
+                <button type="submit" className="btn-gold min-h-[44px] text-sm" disabled={salvando}>
+                  {salvando ? "Salvando..." : "Salvar registro"}
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => registrarLancamento(e, true)}
+                  disabled={salvando}
+                  className="min-h-[44px] rounded-xl border border-gold-500/60 text-sm text-gold-300"
+                >
+                  Salvar e lançar outro
+                </button>
+              </div>
+            )}
+          </form>
+
+          <GavetaCard
+            instancia={instanciaFoco}
+            dados={gavetas[instanciaFoco.id]}
+            mesReferencia={mesReferencia}
+            janela={janela}
+            onEditarInstancia={() =>
+              setInstanciaEditando({ id: instanciaFoco.id, nome: instanciaFoco.nome, cor: instanciaFoco.cor })
+            }
+            onExcluirInstancia={() => setInstanciaParaExcluir(instanciaFoco)}
+            onEditarLancamento={(l) => abrirEdicaoLancamento(instanciaFoco, l)}
+            onExcluirLancamento={excluirLancamento}
+            sticky
+          />
         </div>
       )}
 
@@ -623,8 +635,6 @@ function GavetaCard({
   dados,
   mesReferencia,
   janela,
-  labelLancar,
-  onLancar,
   onEditarInstancia,
   onExcluirInstancia,
   onEditarLancamento,
@@ -635,8 +645,6 @@ function GavetaCard({
   dados?: DadosGaveta;
   mesReferencia?: string;
   janela?: string;
-  labelLancar?: string;
-  onLancar?: () => void;
   onEditarInstancia: () => void;
   onExcluirInstancia: () => void;
   onEditarLancamento: (l: LancamentoLocal) => void;
@@ -653,6 +661,9 @@ function GavetaCard({
         <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: instancia.cor }} />
         <p className="min-w-0 flex-1 truncate text-sm font-medium" style={{ color: instancia.cor }}>
           {instancia.nome}
+          {mesReferencia && (
+            <span className="font-normal text-cream-100/50"> ({formatarMesInline(mesReferencia)})</span>
+          )}
         </p>
         <button
           onClick={onEditarInstancia}
@@ -684,15 +695,6 @@ function GavetaCard({
             </p>
           )}
         </div>
-        {onLancar && labelLancar && (
-          <button
-            onClick={onLancar}
-            className="shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium"
-            style={{ borderColor: instancia.cor, color: instancia.cor }}
-          >
-            {labelLancar}
-          </button>
-        )}
       </div>
 
       {!carregando && lancamentos.length === 0 && (
