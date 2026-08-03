@@ -95,7 +95,7 @@ router.get('/pdf', asyncHandler(async (req, res) => {
     `inline; filename="relatorio-dominium-${recorte.mesReferencia}-${recorte.janela}-${recorte.direcao}.pdf"`
   );
   res.setHeader('Cache-Control', 'no-store');
-  buffer.pipe(res);
+  res.end(buffer);
 }));
 
 module.exports = router;
