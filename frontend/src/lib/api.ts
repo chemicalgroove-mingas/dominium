@@ -1,7 +1,7 @@
 // Sem NEXT_PUBLIC_API_URL, assume same-origin: em producao (Vercel Services)
 // o rewrite de /api/* ja roteia para o backend no mesmo dominio. Em dev local,
 // .env.local define NEXT_PUBLIC_API_URL=http://localhost:5001 explicitamente.
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
+export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 export class ApiError extends Error {
   status: number;

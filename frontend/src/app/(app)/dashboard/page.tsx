@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Area, AreaChart, Bar, BarChart, ResponsiveContainer, Tooltip, XAxis } from "recharts";
 import { FileText, Plus } from "lucide-react";
-import { api } from "@/lib/api";
+import { API_URL, api } from "@/lib/api";
 import { formatarDataHora, formatarMoeda } from "@/lib/format";
 import { formatarMesCurto, formatarMesLabel } from "@/lib/mes";
 import { useAuth } from "@/contexts/AuthContext";
@@ -12,10 +12,9 @@ import { JanelaSelector } from "@/components/dominium/JanelaSelector";
 import { SeletorMesReferencia } from "@/components/dominium/SeletorMesReferencia";
 import { LancamentoRapidoDrawer } from "@/components/dominium/LancamentoRapidoDrawer";
 import { Toast } from "@/components/dominium/Toast";
-import { entregarArquivo } from "@/lib/compartilharArquivo";
 import { lerSnapshot, salvarSnapshot } from "@/lib/offline/snapshots";
 import { useOutboxPendentes } from "@/lib/offline/useOutboxPendentes";
-import type { DashboardData, Direcao, Janela, RelatorioData } from "@/lib/types";
+import type { DashboardData, Direcao, Janela } from "@/lib/types";
 
 const SNAPSHOT = "dashboard";
 const LABEL_PERIODO_RELATORIO: Record<Janela, string> = {
@@ -35,32 +34,22 @@ export default function DashboardPage() {
   const redeConfirmouRef = useRef(false);
   const [drawerAberto, setDrawerAberto] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  const [gerandoRelatorio, setGerandoRelatorio] = useState(false);
   const pendentesUsuario = useOutboxPendentes(usuario?.id);
   const pendentesAnterioresRef = useRef(0);
 
-  // O PDF so e' montado sob demanda: busca o JSON ja calculado pelo backend
-  // (mesmos agregados + linhas por instancia via parcelasNaJanela) e formata
-  // no cliente, sem recalcular projecao/competencia. Import de
-  // @react-pdf/renderer e' lazy (dentro de gerarRelatorioPdfBlob), so
-  // carregado quando o usuario clica aqui — nao infla o bundle inicial.
+  // O PDF e' gerado no backend (mesmo padrao do botao "Gerar repertorio" do
+  // SISBANDA) e entregue por navegacao direta pra URL, com
+  // Content-Disposition: inline — o navegador abre no proprio visualizador
+  // em vez de disparar o menu de compartilhar do sistema (o que acontecia no
+  // Safari/iOS com o fluxo antigo de fetch -> blob -> navigator.share).
+  // Chamado direto no onClick, sem await antes do window.open: no iOS o
+  // gesto do usuario so "sobrevive" a chamadas sincronas.
   // direcao so importa quando janela !== "mes" (dois botoes, ver JSX abaixo);
   // em janela "mes" o default 'futuro' e' o unico recorte possivel (mes de
   // referencia sozinho), entao o botao unico nem precisa escolher.
-  async function gerarRelatorioPdf(direcao: Direcao = "futuro") {
-    setGerandoRelatorio(true);
-    try {
-      const dados = await api.get<RelatorioData>(
-        `/api/relatorio?janela=${janela}&mesReferencia=${mesReferencia}&direcao=${direcao}`
-      );
-      const { gerarRelatorioPdfBlob } = await import("@/lib/relatorioPdf");
-      const blob = await gerarRelatorioPdfBlob(dados);
-      await entregarArquivo(blob, `relatorio-dominium-${mesReferencia}-${janela}-${direcao}.pdf`, "application/pdf");
-    } catch {
-      setToast("Não foi possível gerar o relatório. Tente novamente.");
-    } finally {
-      setGerandoRelatorio(false);
-    }
+  function gerarRelatorioPdf(direcao: Direcao = "futuro") {
+    const url = `${API_URL}/api/relatorio/pdf?janela=${janela}&mesReferencia=${mesReferencia}&direcao=${direcao}`;
+    window.open(url, "_blank", "noopener,noreferrer");
   }
 
   const carregar = useCallback(async () => {
@@ -339,26 +328,23 @@ export default function DashboardPage() {
         {janela === "mes" ? (
           <button
             onClick={() => gerarRelatorioPdf("futuro")}
-            disabled={gerandoRelatorio}
-            className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl border border-gold-500/60 text-sm text-gold-300 disabled:opacity-50"
+            className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl border border-gold-500/60 text-sm text-gold-300"
           >
-            <FileText size={16} /> {gerandoRelatorio ? "Gerando PDF..." : "Gerar relatório"}
+            <FileText size={16} /> Gerar relatório
           </button>
         ) : (
           <div className="grid grid-cols-2 gap-2">
             <button
               onClick={() => gerarRelatorioPdf("passado")}
-              disabled={gerandoRelatorio}
-              className="flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-gold-500/60 text-sm text-gold-300 disabled:opacity-50"
+              className="flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-gold-500/60 text-sm text-gold-300"
             >
-              <FileText size={16} /> {gerandoRelatorio ? "Gerando..." : "Relatório passado"}
+              <FileText size={16} /> Relatório passado
             </button>
             <button
               onClick={() => gerarRelatorioPdf("futuro")}
-              disabled={gerandoRelatorio}
-              className="flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-gold-500/60 text-sm text-gold-300 disabled:opacity-50"
+              className="flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-gold-500/60 text-sm text-gold-300"
             >
-              <FileText size={16} /> {gerandoRelatorio ? "Gerando..." : "Relatório futuro"}
+              <FileText size={16} /> Relatório futuro
             </button>
           </div>
         )}
