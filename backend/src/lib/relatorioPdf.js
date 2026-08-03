@@ -24,6 +24,43 @@ function construirDescritorPeriodo(inicioJanela, fimJanela) {
   return `Referência: de ${formatarMesLabel(inicioJanela)} a ${formatarMesLabel(fimJanela)}`;
 }
 
+function formatarMesCurtissimo(chave) {
+  const [ano, mes] = chave.split('-');
+  const nomes = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+  return `${nomes[parseInt(mes, 10) - 1]}/${ano.slice(2)}`;
+}
+
+// Mesma concatenação usada no Dashboard (consolidadoCompleto) pro gráfico de
+// saldo do PDF: histórico já fechado + projeção a partir do próximo mês.
+function construirSerieSaldo(resumo) {
+  return [...resumo.saldoAcumuladoHistorico, ...resumo.saldoConsolidado];
+}
+
+// Fatos factuais (sem juízo de valor) derivados da série de saldo, pro
+// rótulo abaixo do gráfico 1.
+function construirFatoSaldo(pontos) {
+  if (pontos.length === 0) return null;
+  const inicial = pontos[0].saldoAcumulado;
+  const final = pontos[pontos.length - 1].saldoAcumulado;
+  return `Variação no período: ${formatarMoeda(final - inicial)}  ·  Saldo final: ${formatarMoeda(final)}`;
+}
+
+// Idem, derivados de evolucaoMensal, pro rótulo abaixo do gráfico 2. Em
+// empate no "maior gasto", fica o primeiro (só atualiza com '>' estrito).
+function construirFatoEvolucao(meses) {
+  if (meses.length === 0) return null;
+  let deficits = 0;
+  let maiorGasto = meses[0];
+  meses.forEach((m) => {
+    if (m.gasto > m.receita) deficits += 1;
+    if (m.gasto > maiorGasto.gasto) maiorGasto = m;
+  });
+  return (
+    `Meses com déficit (gasto > receita): ${deficits} de ${meses.length}  ·  ` +
+    `Maior gasto: ${formatarMesCurtissimo(maiorGasto.mes)} (${formatarMoeda(maiorGasto.gasto)})`
+  );
+}
+
 function agruparSecoes(porInstancia) {
   const receitas = porInstancia.filter((i) => i.instancia.grupo === 'receita');
   const despesas = porInstancia.filter((i) => i.instancia.grupo === 'gasto');
@@ -52,10 +89,19 @@ const MUTE = '#6B7785';
 const LINE = '#E5E2DA';
 const NEGATIVE = '#C0473B';
 const CARD_BG = '#FBFAF7';
+// Mesmas cores usadas no BarChart do Dashboard (frontend/src/app/(app)/dashboard/page.tsx)
+// pras barras de receita/gasto — replicadas aqui pra manter a identidade visual.
+const RECEITA_COLOR = '#4CAF7D';
+const GASTO_COLOR = '#D9614F';
+// Largura útil do corpo do PDF: página A4 (595.28pt) menos os 34pt de
+// paddingHorizontal de cada lado do container `corpo`.
+const GRAFICO_LARGURA = 527.28;
 
 async function gerarRelatorioPdfBuffer(dados) {
   const { createElement: h } = require('react');
-  const { Document, Page, Text, View, Image, StyleSheet, Font, pdf } = await import('@react-pdf/renderer');
+  const { Document, Page, Text, View, Image, StyleSheet, Font, pdf, Svg, Path, Rect, Line, Circle } = await import(
+    '@react-pdf/renderer'
+  );
 
   let fontSerifada = 'Playfair';
   try {
@@ -75,7 +121,264 @@ async function gerarRelatorioPdfBuffer(dados) {
   const { resumo, porInstancia } = dados;
   const secoes = agruparSecoes(porInstancia);
   const mostrarProjecao = resumo.janela !== 'mes';
+  // Sem série temporal num relatório de mês único — a seção de gráficos só
+  // faz sentido pra janelas com mais de um mês (3m/6m/12m), nas duas direções.
+  const mostrarGraficos = resumo.janela !== 'mes';
   const descritorPeriodo = construirDescritorPeriodo(resumo.inicioJanela, resumo.fimJanela);
+
+  // Gráfico 1 — saldo acumulado ao longo do tempo (linha + área sombreada).
+  // Desenhado com as primitivas SVG do @react-pdf/renderer (sem depender do
+  // motor do Recharts, que não existe no backend): linhas retas entre
+  // pontos, sem tooltip, sombreado sólido semi-transparente (não gradiente).
+  function construirGraficoSaldo(styles) {
+    const pontos = construirSerieSaldo(resumo);
+    if (pontos.length === 0) return null;
+
+    const W = GRAFICO_LARGURA;
+    const margemEsq = 46;
+    const margemDir = 6;
+    const margemTopo = 10;
+    const margemBase = 16;
+    const plotW = W - margemEsq - margemDir;
+    const plotH = 130;
+    const svgH = margemTopo + plotH + margemBase;
+
+    const valores = pontos.map((p) => p.saldoAcumulado);
+    const dadosMin = Math.min(0, ...valores);
+    const dadosMax = Math.max(0, ...valores);
+    let escalaMin = dadosMin;
+    let escalaMax = dadosMax;
+    if (escalaMin === escalaMax) {
+      // série constante (ex.: um único ponto em zero) — evita divisão por zero
+      escalaMin -= 1;
+      escalaMax += 1;
+    }
+    const folga = (escalaMax - escalaMin) * 0.08;
+    escalaMin -= folga;
+    escalaMax += folga;
+
+    const xDe = (indice) =>
+      pontos.length > 1 ? margemEsq + (indice / (pontos.length - 1)) * plotW : margemEsq + plotW / 2;
+    const yDe = (valor) => margemTopo + (1 - (valor - escalaMin) / (escalaMax - escalaMin)) * plotH;
+    const zeroY = yDe(0);
+
+    const coordenadas = pontos.map((p, i) => [xDe(i), yDe(p.saldoAcumulado)]);
+
+    const indiceCorte = resumo.saldoAcumuladoHistorico.length;
+    const temHistorico = indiceCorte > 0;
+    const temProjecao = resumo.saldoConsolidado.length > 0;
+
+    const elementosSvg = [
+      h(Line, {
+        key: 'eixo-zero',
+        x1: margemEsq,
+        y1: zeroY,
+        x2: W - margemDir,
+        y2: zeroY,
+        stroke: LINE,
+        strokeWidth: 1,
+      }),
+    ];
+
+    if (coordenadas.length >= 2) {
+      const linhaD = `M ${coordenadas.map(([x, y]) => `${x.toFixed(2)},${y.toFixed(2)}`).join(' L ')}`;
+      const primeiro = coordenadas[0];
+      const ultimo = coordenadas[coordenadas.length - 1];
+      const areaD = `${linhaD} L ${ultimo[0].toFixed(2)},${zeroY.toFixed(2)} L ${primeiro[0].toFixed(2)},${zeroY.toFixed(2)} Z`;
+      elementosSvg.push(h(Path, { key: 'area', d: areaD, fill: GOLD, fillOpacity: 0.18 }));
+      elementosSvg.push(h(Path, { key: 'linha', d: linhaD, stroke: GOLD_DARK, strokeWidth: 1.6, fill: 'none' }));
+
+      if (temHistorico && temProjecao) {
+        const xCorte = (xDe(indiceCorte - 1) + xDe(indiceCorte)) / 2;
+        elementosSvg.push(
+          h(Line, {
+            key: 'corte',
+            x1: xCorte,
+            y1: margemTopo,
+            x2: xCorte,
+            y2: margemTopo + plotH,
+            stroke: MUTE,
+            strokeWidth: 0.75,
+            strokeDasharray: '2,2',
+          })
+        );
+      }
+    } else {
+      elementosSvg.push(
+        h(Circle, { key: 'ponto-unico', cx: coordenadas[0][0], cy: coordenadas[0][1], r: 2.2, fill: GOLD_DARK })
+      );
+    }
+
+    // labels do eixo x: no máximo 6, sempre incluindo o último ponto
+    const maxLabels = 6;
+    const passo = Math.max(1, Math.ceil((pontos.length - 1) / (maxLabels - 1)));
+    const indicesLabel = [];
+    for (let i = 0; i < pontos.length; i += passo) indicesLabel.push(i);
+    const ultimoIndice = pontos.length - 1;
+    if (indicesLabel[indicesLabel.length - 1] !== ultimoIndice) {
+      // se o rótulo anterior ficaria colado no último, tira ele em vez de
+      // sobrepor os dois (o último ponto sempre entra)
+      const anterior = indicesLabel[indicesLabel.length - 1];
+      if (indicesLabel.length > 1 && ultimoIndice - anterior < passo / 2) indicesLabel.pop();
+      indicesLabel.push(ultimoIndice);
+    }
+    indicesLabel.forEach((i) => {
+      // nos extremos, ancora o texto pra dentro do gráfico em vez de
+      // centralizar — senão o rótulo do último ponto vaza pra fora do Svg
+      const ancora = i === pontos.length - 1 ? 'end' : i === 0 ? 'start' : 'middle';
+      elementosSvg.push(
+        h(
+          Text,
+          {
+            key: `label-x-${i}`,
+            x: xDe(i),
+            y: svgH - 4,
+            style: { fontSize: 6, fill: MUTE, textAnchor: ancora },
+          },
+          formatarMesCurtissimo(pontos[i].mes)
+        )
+      );
+    });
+
+    // labels do eixo y: máximo, zero e mínimo reais dos dados (sem duplicar)
+    const referenciasY = Array.from(new Set([dadosMax, 0, dadosMin]));
+    referenciasY.forEach((valor, idx) => {
+      elementosSvg.push(
+        h(
+          Text,
+          {
+            key: `label-y-${idx}`,
+            x: margemEsq - 4,
+            y: yDe(valor) + 2.5,
+            style: { fontSize: 6, fill: MUTE, textAnchor: 'end' },
+          },
+          formatarMoeda(valor)
+        )
+      );
+    });
+
+    const fato = construirFatoSaldo(pontos);
+
+    return h(
+      View,
+      { key: 'grafico-saldo', style: styles.graficoBloco, wrap: false },
+      h(Text, { style: styles.graficoSubtitulo }, 'Saldo ao longo do tempo'),
+      h(Svg, { width: W, height: svgH }, ...elementosSvg),
+      h(
+        View,
+        { style: styles.legendaLinha },
+        h(View, { key: 'sw-saldo', style: [styles.legendaSwatch, { backgroundColor: GOLD_DARK }] }),
+        h(Text, { key: 'tx-saldo', style: styles.legendaTexto }, 'Saldo acumulado'),
+        temHistorico && temProjecao
+          ? h(View, { key: 'sw-corte', style: [styles.legendaSwatchContorno, { borderColor: MUTE }] })
+          : null,
+        temHistorico && temProjecao
+          ? h(Text, { key: 'tx-corte', style: styles.legendaTexto }, 'Início da projeção (tracejado)')
+          : null
+      ),
+      fato ? h(Text, { style: styles.graficoRotulo }, fato) : null
+    );
+  }
+
+  // Gráfico 2 — evolução mensal de receita × gasto (barras agrupadas).
+  function construirGraficoEvolucao(styles) {
+    const meses = resumo.evolucaoMensal;
+    if (meses.length === 0) return null;
+
+    const W = GRAFICO_LARGURA;
+    const margemEsq = 46;
+    const margemDir = 6;
+    const margemTopo = 10;
+    const margemBase = 16;
+    const plotW = W - margemEsq - margemDir;
+    const plotH = 110;
+    const svgH = margemTopo + plotH + margemBase;
+
+    const valorMax = Math.max(1, ...meses.map((m) => Math.max(m.receita, m.gasto)));
+    const baseY = margemTopo + plotH;
+    const yDe = (valor) => margemTopo + (1 - valor / valorMax) * plotH;
+
+    const grupoLargura = plotW / meses.length;
+    const barraLargura = Math.min(14, grupoLargura * 0.32);
+    const espacoEntreBarras = 2;
+
+    const elementosSvg = [
+      h(Line, { key: 'eixo-base', x1: margemEsq, y1: baseY, x2: W - margemDir, y2: baseY, stroke: LINE, strokeWidth: 1 }),
+    ];
+
+    meses.forEach((m, i) => {
+      const centroGrupo = margemEsq + grupoLargura * (i + 0.5);
+      const xReceita = centroGrupo - barraLargura - espacoEntreBarras / 2;
+      const xGasto = centroGrupo + espacoEntreBarras / 2;
+      const yReceita = yDe(m.receita);
+      const yGasto = yDe(m.gasto);
+      elementosSvg.push(
+        h(Rect, {
+          key: `receita-${m.mes}`,
+          x: xReceita,
+          y: yReceita,
+          width: barraLargura,
+          height: Math.max(0, baseY - yReceita),
+          fill: RECEITA_COLOR,
+        })
+      );
+      elementosSvg.push(
+        h(Rect, {
+          key: `gasto-${m.mes}`,
+          x: xGasto,
+          y: yGasto,
+          width: barraLargura,
+          height: Math.max(0, baseY - yGasto),
+          fill: GASTO_COLOR,
+        })
+      );
+      elementosSvg.push(
+        h(
+          Text,
+          {
+            key: `label-x-${m.mes}`,
+            x: centroGrupo,
+            y: svgH - 4,
+            style: { fontSize: 6, fill: MUTE, textAnchor: 'middle' },
+          },
+          formatarMesCurtissimo(m.mes)
+        )
+      );
+    });
+
+    [0, valorMax].forEach((valor, idx) => {
+      elementosSvg.push(
+        h(
+          Text,
+          {
+            key: `label-y-${idx}`,
+            x: margemEsq - 4,
+            y: yDe(valor) + 2.5,
+            style: { fontSize: 6, fill: MUTE, textAnchor: 'end' },
+          },
+          formatarMoeda(valor)
+        )
+      );
+    });
+
+    const fato = construirFatoEvolucao(meses);
+
+    return h(
+      View,
+      { key: 'grafico-evolucao', style: styles.graficoBloco, wrap: false },
+      h(Text, { style: styles.graficoSubtitulo }, 'Evolução mensal (receita × gasto)'),
+      h(Svg, { width: W, height: svgH }, ...elementosSvg),
+      h(
+        View,
+        { style: styles.legendaLinha },
+        h(View, { key: 'sw-receita', style: [styles.legendaSwatch, { backgroundColor: RECEITA_COLOR }] }),
+        h(Text, { key: 'tx-receita', style: styles.legendaTexto }, 'Receita'),
+        h(View, { key: 'sw-gasto', style: [styles.legendaSwatch, { backgroundColor: GASTO_COLOR }] }),
+        h(Text, { key: 'tx-gasto', style: styles.legendaTexto }, 'Gasto')
+      ),
+      fato ? h(Text, { style: styles.graficoRotulo }, fato) : null
+    );
+  }
 
   const resumoItens = [
     { label: 'Receita no período', valor: formatarMoeda(resumo.receitaPeriodo), negativo: false },
@@ -198,6 +501,13 @@ async function gerarRelatorioPdfBuffer(dados) {
         paddingVertical: 10,
       },
       rodapeTexto: { fontFamily: 'Helvetica', fontSize: 7, color: MUTE },
+      graficoBloco: { marginBottom: 24 },
+      graficoSubtitulo: { fontFamily: 'Helvetica-Bold', fontSize: 9, color: NAVY, marginBottom: 6 },
+      legendaLinha: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 5 },
+      legendaSwatch: { width: 7, height: 7, borderRadius: 1.5 },
+      legendaSwatchContorno: { width: 7, height: 7, borderRadius: 1.5, borderWidth: 1, borderStyle: 'dashed' },
+      legendaTexto: { fontFamily: 'Helvetica', fontSize: 7, color: MUTE, marginRight: 6 },
+      graficoRotulo: { fontFamily: 'Helvetica', fontSize: 7.5, color: MUTE, marginTop: 6 },
     });
 
     function blocoInstancia(item) {
@@ -290,6 +600,21 @@ async function gerarRelatorioPdfBuffer(dados) {
             );
           })
         ),
+        // Precisa ser irmã de `corpo` (filha direta de Page), não aninhada
+        // dentro dela: o prop `break` do @react-pdf/renderer só é respeitado
+        // pelo algoritmo de paginação quando o elemento está no nível que
+        // está sendo efetivamente paginado — dentro de outra View ele é
+        // ignorado (testado: um `break` aninhado não força página nova
+        // quando o conteúdo anterior cabe todo numa página só).
+        mostrarGraficos
+          ? h(
+              View,
+              { key: 'secao-evolucao', style: styles.corpo, break: true },
+              h(Text, { style: styles.secaoTitulo }, 'EVOLUÇÃO'),
+              construirGraficoSaldo(styles),
+              construirGraficoEvolucao(styles)
+            )
+          : null,
         h(
           View,
           { style: styles.rodape, fixed: true },
