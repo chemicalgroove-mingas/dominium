@@ -1,4 +1,4 @@
-import { somarMeses } from "@/lib/mes";
+import { diferencaEmMeses, somarMeses } from "@/lib/mes";
 import type {
   AporteLocal,
   LancamentoLocal,
@@ -8,15 +8,30 @@ import type {
   ResgateLocal,
 } from "@/lib/offline/types";
 
-// Espelha o cálculo do backend (mesFim = mesInicio + parcelas - 1, ver
-// backend/src/routes/lancamentos.js) só pra pintar a UI na hora. O valor
-// real (pagas/restantes/totalRestante) vem do servidor assim que sincroniza;
-// aqui é sempre "0 pagas" porque é um lançamento recém-criado, sem pagamento.
-export function construirLancamentoOtimista(op: OperacaoOutbox): LancamentoLocal {
+// Espelha o cálculo do backend (mesFim = mesInicio + parcelas - 1 e a
+// competência por mesReferencia, ver backend/src/routes/lancamentos.js,
+// competenciaDoLancamento) só pra pintar a UI na hora, antes do servidor
+// confirmar. mesReferencia é o mês selecionado no seletor no momento da
+// criação — sem ele (ex.: fluxo de investimentos, sem seletor de mês por
+// aporte) assume-se o próprio mesInicio, ou seja, parcela 1.
+export function construirLancamentoOtimista(op: OperacaoOutbox, mesReferencia?: string): LancamentoLocal {
   const payload = op.payload as PayloadCriarLancamento;
   const temporario = payload.tipo === "temporario";
   const parcelas = temporario ? payload.parcelas : null;
   const mesFim = temporario && parcelas ? somarMeses(payload.mesInicio, parcelas - 1) : null;
+
+  let parcelaAtual: number | null = null;
+  let restantes: number | null = null;
+  let totalRestante: number | null = null;
+  if (temporario && parcelas) {
+    const ref = mesReferencia ?? payload.mesInicio;
+    const indice = diferencaEmMeses(payload.mesInicio, ref) + 1;
+    if (indice >= 1 && indice <= parcelas) {
+      parcelaAtual = indice;
+      restantes = parcelas - indice;
+      totalRestante = restantes * payload.valor;
+    }
+  }
 
   return {
     id: op.clienteId,
@@ -37,8 +52,10 @@ export function construirLancamentoOtimista(op: OperacaoOutbox): LancamentoLocal
     observacoes: payload.observacoes,
     criadoEm: new Date(op.criadoEm).toISOString(),
     pagas: temporario ? 0 : null,
-    restantes: temporario ? parcelas : null,
-    totalRestante: temporario && parcelas ? parcelas * payload.valor : null,
+    valorParcela: payload.valor,
+    parcelaAtual,
+    restantes,
+    totalRestante,
     syncStatus: op.status,
   };
 }

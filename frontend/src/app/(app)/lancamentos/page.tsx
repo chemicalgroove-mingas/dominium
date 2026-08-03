@@ -95,7 +95,7 @@ export default function LancamentosPage() {
       const pendentes = usuario ? await listarNaoConcluidas(usuario.id) : [];
       const otimistas = pendentes
         .filter((op) => op.payload.instanciaId === instancia.id)
-        .map(construirLancamentoOtimista);
+        .map((op) => construirLancamentoOtimista(op, mesReferencia));
 
       try {
         const data = await api.get<{ lancamentos: Lancamento[]; totalJanela: number }>(
@@ -285,7 +285,7 @@ export default function LancamentosPage() {
     // Criação: otimista. Entra na tela na hora, fica marcada como pendente,
     // e sincroniza sozinha (agora, se der, ou quando a rede voltar).
     const operacao = await enqueuarCriacaoLancamento(usuario.id, payload);
-    const otimista = construirLancamentoOtimista(operacao);
+    const otimista = construirLancamentoOtimista(operacao, mesReferencia);
     setGavetas((prev) => {
       const atual = prev[instanciaFoco.id] || { lancamentos: [], totalJanela: 0, carregando: false };
       return {
@@ -723,7 +723,7 @@ function GavetaCard({
                   <p className="tabular text-xs text-cream-100/60">{formatarMoeda(l.valor)}/mês · FIXO</p>
                 ) : (
                   <p className="tabular text-xs text-cream-100/60">
-                    {formatarMoeda(l.valor)}/parcela · {l.restantes}/{l.parcelas} restantes · resta{" "}
+                    {formatarMoeda(l.valorParcela ?? l.valor)}/parcela · {l.parcelaAtual}/{l.parcelas} · resta{" "}
                     {formatarMoeda(l.totalRestante || 0)}
                   </p>
                 )}
