@@ -15,12 +15,17 @@ function totalPorGrupo(lancamentos, grupoPorInstancia, grupo, inicio, fim) {
 // Monta o mesmo pacote de indicadores exibido no Dashboard (GET /api/dashboard),
 // a partir das entidades ja carregadas do banco. Usado por dashboard.js e por
 // relatorio.js — a fonte de verdade dos numeros vive aqui, uma vez so.
-function calcularResumo({ instancias, lancamentos, investimentos, mesReferencia, janela }) {
+//
+// direcao e' opcional (default 'futuro'): dashboard.js nunca passa esse
+// argumento, entao seu recorte permanece identico ao de sempre. Só
+// relatorio.js repassa 'passado'|'futuro' pra gerar o relatorio na direcao
+// escolhida pelo usuario.
+function calcularResumo({ instancias, lancamentos, investimentos, mesReferencia, janela, direcao = 'futuro' }) {
   const ref = mesReferencia;
   const mesesJanela = JANELAS[janela];
 
   const grupoPorInstancia = new Map(instancias.map((i) => [i.id, i.grupo]));
-  const [inicioJanela, fimJanela] = limitesJanela(ref, janela);
+  const [inicioJanela, fimJanela] = limitesJanela(ref, janela, direcao);
 
   const receitaPeriodo = totalPorGrupo(lancamentos, grupoPorInstancia, 'receita', inicioJanela, fimJanela);
   const despesaLancamentos = totalPorGrupo(lancamentos, grupoPorInstancia, 'gasto', inicioJanela, fimJanela);
@@ -31,7 +36,7 @@ function calcularResumo({ instancias, lancamentos, investimentos, mesReferencia,
   const comprometimento = receitaPeriodo > 0 ? (despesaPeriodo / receitaPeriodo) * 100 : 0;
   const sobraLivreMes = saldoPeriodo / mesesJanela;
 
-  const evolucaoMensal = listarMeses(ref, mesesJanela).map((mes) => {
+  const evolucaoMensal = listarMeses(inicioJanela, mesesJanela).map((mes) => {
     const receita = totalPorGrupo(lancamentos, grupoPorInstancia, 'receita', mes, mes);
     const gasto =
       totalPorGrupo(lancamentos, grupoPorInstancia, 'gasto', mes, mes) +
@@ -147,6 +152,9 @@ function calcularResumo({ instancias, lancamentos, investimentos, mesReferencia,
   return {
     janela,
     mesReferencia: ref,
+    direcao,
+    inicioJanela,
+    fimJanela,
     receitaPeriodo,
     despesaPeriodo,
     saldoPeriodo,

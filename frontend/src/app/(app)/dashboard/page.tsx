@@ -15,7 +15,7 @@ import { Toast } from "@/components/dominium/Toast";
 import { entregarArquivo } from "@/lib/compartilharArquivo";
 import { lerSnapshot, salvarSnapshot } from "@/lib/offline/snapshots";
 import { useOutboxPendentes } from "@/lib/offline/useOutboxPendentes";
-import type { DashboardData, Janela, RelatorioData } from "@/lib/types";
+import type { DashboardData, Direcao, Janela, RelatorioData } from "@/lib/types";
 
 const SNAPSHOT = "dashboard";
 const LABEL_PERIODO_RELATORIO: Record<Janela, string> = {
@@ -44,13 +44,18 @@ export default function DashboardPage() {
   // no cliente, sem recalcular projecao/competencia. Import de
   // @react-pdf/renderer e' lazy (dentro de gerarRelatorioPdfBlob), so
   // carregado quando o usuario clica aqui — nao infla o bundle inicial.
-  async function gerarRelatorioPdf() {
+  // direcao so importa quando janela !== "mes" (dois botoes, ver JSX abaixo);
+  // em janela "mes" o default 'futuro' e' o unico recorte possivel (mes de
+  // referencia sozinho), entao o botao unico nem precisa escolher.
+  async function gerarRelatorioPdf(direcao: Direcao = "futuro") {
     setGerandoRelatorio(true);
     try {
-      const dados = await api.get<RelatorioData>(`/api/relatorio?janela=${janela}&mesReferencia=${mesReferencia}`);
+      const dados = await api.get<RelatorioData>(
+        `/api/relatorio?janela=${janela}&mesReferencia=${mesReferencia}&direcao=${direcao}`
+      );
       const { gerarRelatorioPdfBlob } = await import("@/lib/relatorioPdf");
       const blob = await gerarRelatorioPdfBlob(dados);
-      await entregarArquivo(blob, `relatorio-dominium-${mesReferencia}-${janela}.pdf`, "application/pdf");
+      await entregarArquivo(blob, `relatorio-dominium-${mesReferencia}-${janela}-${direcao}.pdf`, "application/pdf");
     } catch {
       setToast("Não foi possível gerar o relatório. Tente novamente.");
     } finally {
@@ -331,13 +336,32 @@ export default function DashboardPage() {
           {LABEL_PERIODO_RELATORIO[janela]} a partir de {formatarMesLabel(mesReferencia)} — gerado na hora, não
           fica salvo no Dominium.
         </p>
-        <button
-          onClick={gerarRelatorioPdf}
-          disabled={gerandoRelatorio}
-          className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl border border-gold-500/60 text-sm text-gold-300 disabled:opacity-50"
-        >
-          <FileText size={16} /> {gerandoRelatorio ? "Gerando PDF..." : "Gerar PDF"}
-        </button>
+        {janela === "mes" ? (
+          <button
+            onClick={() => gerarRelatorioPdf("futuro")}
+            disabled={gerandoRelatorio}
+            className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl border border-gold-500/60 text-sm text-gold-300 disabled:opacity-50"
+          >
+            <FileText size={16} /> {gerandoRelatorio ? "Gerando PDF..." : "Gerar relatório"}
+          </button>
+        ) : (
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => gerarRelatorioPdf("passado")}
+              disabled={gerandoRelatorio}
+              className="flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-gold-500/60 text-sm text-gold-300 disabled:opacity-50"
+            >
+              <FileText size={16} /> {gerandoRelatorio ? "Gerando..." : "Relatório passado"}
+            </button>
+            <button
+              onClick={() => gerarRelatorioPdf("futuro")}
+              disabled={gerandoRelatorio}
+              className="flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-gold-500/60 text-sm text-gold-300 disabled:opacity-50"
+            >
+              <FileText size={16} /> {gerandoRelatorio ? "Gerando..." : "Relatório futuro"}
+            </button>
+          </div>
+        )}
       </div>
 
       <LancamentoRapidoDrawer
