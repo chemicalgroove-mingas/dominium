@@ -76,6 +76,12 @@ export type Lancamento = {
   observacoes: string | null;
   criadoEm: string;
   pagas: number | null;
+  // Campos abaixo refletem a competencia (mesReferencia) selecionada no
+  // seletor de mes, nao o estado global do lancamento — ver
+  // backend/src/routes/lancamentos.js (competenciaDoLancamento). Um lancamento
+  // so aparece na lista de um mes se tiver efeito financeiro nele.
+  valorParcela: number | null;
+  parcelaAtual: number | null;
   restantes: number | null;
   totalRestante: number | null;
 };

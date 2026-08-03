@@ -4,7 +4,7 @@ const { Prisma } = require('@prisma/client');
 const prisma = require('../lib/prisma');
 const { autenticar, exigirRole } = require('../middleware/auth');
 const { somarMeses, mesAtual, parseMes } = require('../utils/mes');
-const { janelaValida, limitesJanela, projetarLancamentoNaJanela } = require('../utils/projecao');
+const { janelaValida, limitesJanela, projetarLancamentoNaJanela, parcelasNaJanela } = require('../utils/projecao');
 const { asyncHandler } = require('../utils/asyncHandler');
 
 const router = express.Router();
@@ -47,6 +47,34 @@ async function serializarComRestantes(lancamento) {
   return { ...lancamento, pagas, restantes, totalRestante: restantes * lancamento.valor };
 }
 
+// Situacao do lancamento na competencia (mes) selecionada no seletor de mes —
+// diferente de serializarComRestantes, que reflete pagamentos reais e nunca
+// muda com a navegacao entre meses. Aqui a fonte e' sempre parcelasNaJanela
+// (mesma logica usada por relatorio.js), pra "qual parcela" e "quanto vale"
+// nunca divergir entre Lancamentos, Dashboard e Relatorio.
+// Retorna null quando o lancamento nao tem efeito financeiro naquele mes
+// (ainda nao comecou, ja terminou ou esta inativo) — nesse caso ele nao deve
+// aparecer na lista daquele mes.
+function competenciaDoLancamento(lancamento, mesReferencia) {
+  if (!lancamento.ativo) return null;
+
+  const [entrada] = parcelasNaJanela(lancamento, mesReferencia, mesReferencia);
+  if (!entrada) return null;
+
+  if (lancamento.tipo !== 'temporario') {
+    return { valorParcela: entrada.valor, parcelaAtual: null, restantes: null, totalRestante: null };
+  }
+
+  const restantes = Math.max(lancamento.parcelas - entrada.parcela, 0);
+  const proximoMes = somarMeses(mesReferencia, 1);
+  const totalRestante = parcelasNaJanela(lancamento, proximoMes, lancamento.mesFim).reduce(
+    (acc, p) => acc + p.valor,
+    0
+  );
+
+  return { valorParcela: entrada.valor, parcelaAtual: entrada.parcela, restantes, totalRestante };
+}
+
 router.get('/', asyncHandler(async (req, res) => {
   const { instanciaId, mesReferencia, janela } = req.query;
   if (!instanciaId) return res.status(400).json({ erro: 'Informe instanciaId.' });
@@ -61,10 +89,25 @@ router.get('/', asyncHandler(async (req, res) => {
     orderBy: { criadoEm: 'desc' },
   });
 
-  const comRestantes = await Promise.all(lancamentos.map(serializarComRestantes));
-
   const ref = mesReferencia && mesSchema.safeParse(mesReferencia).success ? String(mesReferencia) : mesAtual();
   const jan = janela && janelaValida(String(janela)) ? String(janela) : 'mes';
+
+  // Card por card: so entram na lista os que tem efeito financeiro no mes
+  // selecionado (ref), e cada um traz sua propria parcela/valor daquele mes —
+  // nunca o estado global do lancamento (ver competenciaDoLancamento acima).
+  const doMes = lancamentos
+    .map((l) => ({ lancamento: l, competencia: competenciaDoLancamento(l, ref) }))
+    .filter(({ competencia }) => competencia !== null);
+
+  const comRestantes = doMes.map(({ lancamento, competencia }) => ({
+    ...lancamento,
+    pagas: null,
+    valorParcela: competencia.valorParcela,
+    parcelaAtual: competencia.parcelaAtual,
+    restantes: competencia.restantes,
+    totalRestante: competencia.totalRestante,
+  }));
+
   const [inicio, fim] = limitesJanela(ref, jan);
   const totalJanela = lancamentos.reduce(
     (acc, l) => acc + projetarLancamentoNaJanela(l, inicio, fim).total,
