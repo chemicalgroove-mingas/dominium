@@ -305,14 +305,119 @@ async function gerarRelatorioPdfBuffer(dados) {
     );
   }
 
+  // Página de referência: só o rodapé fixo, sem nenhum conteúdo de corpo —
+  // usada por removerPaginaFantasma para reconhecer uma página que só
+  // existe por causa do bug de paginação abaixo, não por conteúdo real.
+  async function gerarPaginaReferenciaRodape() {
+    const styles = StyleSheet.create({
+      page: { fontFamily: 'Helvetica', fontSize: 9, color: INK },
+      rodape: {
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        flexDirection: 'row',
+        justifyContent: 'flex-start',
+        borderTopWidth: 1,
+        borderTopColor: LINE,
+        paddingHorizontal: 44,
+        paddingVertical: 10,
+      },
+      rodapeTexto: { fontFamily: 'Helvetica', fontSize: 7, color: MUTE },
+    });
+    const documento = h(
+      Document,
+      null,
+      h(
+        Page,
+        { size: 'A4', style: styles.page },
+        h(
+          View,
+          { style: styles.rodape, fixed: true },
+          h(
+            Text,
+            { style: styles.rodapeTexto },
+            'Gerado por ',
+            h(Text, { style: { color: GOLD_DARK } }, 'dominiumfinance.com.br'),
+            ` em ${new Date().toLocaleString('pt-BR')}`
+          )
+        )
+      )
+    );
+    return streamParaBuffer(await pdf(documento).toBuffer());
+  }
+
+  async function streamParaBuffer(stream) {
+    const pedacos = [];
+    await new Promise((resolve, reject) => {
+      stream.on('data', (pedaco) => pedacos.push(pedaco));
+      stream.on('end', resolve);
+      stream.on('error', reject);
+    });
+    return Buffer.concat(pedacos);
+  }
+
+  // Por que pós-processar em vez de corrigir via layout: o motor de
+  // paginação do @react-pdf/renderer (@react-pdf/layout, baseado em Yoga)
+  // usa uma tolerância de ponto flutuante fixa e hardcoded — const
+  // SAFETY_THRESHOLD = 0.001 — pra decidir se um elemento cabe na página
+  // atual. Quando a altura acumulada do conteúdo real (que depende de
+  // métricas de fonte calculadas em ponto flutuante) fecha a poucos
+  // milésimos de ponto do limite da página, o erro de arredondamento
+  // ultrapassa esse threshold: a lib entende que "sobrou" uma fatia de
+  // conteúdo, cria uma página nova só pra ela — e como o rodapé é fixed,
+  // ele se repete lá, dando a impressão de uma página em branco no fim do
+  // relatório.
+  //
+  // Testamos dois ajustes de layout antes de ir pro pós-processamento —
+  // aumentar/variar o paddingBottom do corpo e aplicar minPresenceAhead
+  // nos elementos — e nenhum eliminou o problema: os dois só deslocam
+  // *para qual quantidade de linhas* a página fantasma aparece, porque a
+  // causa (SAFETY_THRESHOLD) não é exposta como opção configurável pela
+  // lib. Ou seja: para praticamente qualquer padding/prop escolhido,
+  // existe algum tamanho de relatório que volta a disparar o bug.
+  //
+  // Por isso a correção é em pós-processamento, no PDF já gerado: a
+  // última página é comparada com a "impressão digital" (tamanho do
+  // stream de conteúdo decodificado) de uma página que só tem o rodapé
+  // fixo e nada mais. Só removemos a página quando esse tamanho bate
+  // (dentro da tolerância de dígitos do timestamp) — isso garante que
+  // nunca removemos uma página com conteúdo real, só a fatia fantasma.
+  async function removerPaginaFantasma(bufferPdf) {
+    const { PDFDocument, decodePDFRawStream, PDFName } = require('pdf-lib');
+    const documento = await PDFDocument.load(bufferPdf);
+    const totalPaginas = documento.getPageCount();
+    if (totalPaginas < 2) return bufferPdf;
+
+    const tamanhoConteudo = (doc, indice) => {
+      const pagina = doc.getPage(indice);
+      const referenciaConteudo = pagina.node.get(PDFName.of('Contents'));
+      const objetoConteudo = doc.context.lookup(referenciaConteudo);
+      return decodePDFRawStream(objetoConteudo).decode().length;
+    };
+
+    const tamanhoUltimaPagina = tamanhoConteudo(documento, totalPaginas - 1);
+    const bufferReferencia = await gerarPaginaReferenciaRodape();
+    const documentoReferencia = await PDFDocument.load(bufferReferencia);
+    const tamanhoReferencia = tamanhoConteudo(documentoReferencia, 0);
+
+    const TOLERANCIA_BYTES = 8; // absorve eventual diferença de dígitos no timestamp
+    if (Math.abs(tamanhoUltimaPagina - tamanhoReferencia) > TOLERANCIA_BYTES) {
+      return bufferPdf;
+    }
+    documento.removePage(totalPaginas - 1);
+    return Buffer.from(await documento.save());
+  }
+
+  let bufferGerado;
   try {
-    const stream = await pdf(montarDocumento(fontSerifada)).toBuffer();
-    return stream;
+    bufferGerado = await streamParaBuffer(await pdf(montarDocumento(fontSerifada)).toBuffer());
   } catch (err) {
     if (fontSerifada === 'Times-Roman') throw err;
     console.error('Falha ao renderizar PDF com Playfair Display; usando Times-Roman como fallback.', err);
-    return await pdf(montarDocumento('Times-Roman')).toBuffer();
+    bufferGerado = await streamParaBuffer(await pdf(montarDocumento('Times-Roman')).toBuffer());
   }
+  return removerPaginaFantasma(bufferGerado);
 }
 
 module.exports = { gerarRelatorioPdfBuffer };
