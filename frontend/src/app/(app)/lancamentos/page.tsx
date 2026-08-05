@@ -68,11 +68,11 @@ const FORM_VAZIO = {
   mesInicio: "",
   prazoMeses: 1 as number | "",
   observacoes: "",
-  // 'parcela': o valor digitado já é o da parcela (comportamento de sempre).
-  // 'total': o valor digitado é o total da compra — o backend calcula a
-  // parcela (resíduo na última via calcularPlanoTemporario); o frontend só
-  // espelha a mesma fórmula pra mostrar uma prévia antes de salvar.
-  modoValor: "parcela" as "total" | "parcela",
+  // 'total' (default): no momento do registro o usuário tem o total da
+  // compra na cabeça, não a parcela — capturar sem fricção é prioridade; a
+  // conversão pro valor de parcela é feita pelo backend (calcularPlanoTemporario).
+  // 'parcela': o valor digitado já é o da parcela, como sempre foi.
+  modoValor: "total" as "total" | "parcela",
 };
 
 type DadosGaveta = { lancamentos: LancamentoLocal[]; totalJanela: number; carregando: boolean };
@@ -502,40 +502,48 @@ export default function LancamentosPage() {
               onSubmit={(e) => registrarLancamento(e, false)}
               className="card-dominium flex flex-col gap-4 p-5"
             >
-              <CampoMoeda
-                label={
-                  form.tipo === "temporario" ? "Valor (total da compra ou da parcela)" : "Valor (parcela/mensalidade)"
-                }
-                valorCentavos={form.valorCentavos}
-                onChange={(valorCentavos) => setForm({ ...form, valorCentavos })}
-                required
-              />
-
-              {form.tipo === "temporario" && (
-                <div className="-mt-2 grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setForm({ ...form, modoValor: "total" })}
-                    className={`min-h-[36px] rounded-lg border text-xs font-medium ${
-                      form.modoValor === "total"
-                        ? "border-gold-500 text-gold-300"
-                        : "border-navy-700 text-cream-100/60"
-                    }`}
-                  >
-                    Total
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setForm({ ...form, modoValor: "parcela" })}
-                    className={`min-h-[36px] rounded-lg border text-xs font-medium ${
-                      form.modoValor === "parcela"
-                        ? "border-gold-500 text-gold-300"
-                        : "border-navy-700 text-cream-100/60"
-                    }`}
-                  >
-                    Parcela
-                  </button>
+              {form.tipo === "temporario" ? (
+                <div>
+                  <div className="mb-1 flex items-center justify-between gap-2">
+                    <label className="text-sm text-cream-100/80">Valor (selecione total ou parcela)</label>
+                    <div className="flex shrink-0 gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setForm({ ...form, modoValor: "total" })}
+                        className={`rounded-lg border px-2.5 py-1 text-xs font-medium ${
+                          form.modoValor === "total"
+                            ? "border-gold-500 text-gold-300"
+                            : "border-navy-700 text-cream-100/60"
+                        }`}
+                      >
+                        Total
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setForm({ ...form, modoValor: "parcela" })}
+                        className={`rounded-lg border px-2.5 py-1 text-xs font-medium ${
+                          form.modoValor === "parcela"
+                            ? "border-gold-500 text-gold-300"
+                            : "border-navy-700 text-cream-100/60"
+                        }`}
+                      >
+                        Parcela
+                      </button>
+                    </div>
+                  </div>
+                  <CampoMoeda
+                    valorCentavos={form.valorCentavos}
+                    onChange={(valorCentavos) => setForm({ ...form, valorCentavos })}
+                    required
+                  />
                 </div>
+              ) : (
+                <CampoMoeda
+                  label="Valor (parcela/mensalidade)"
+                  valorCentavos={form.valorCentavos}
+                  onChange={(valorCentavos) => setForm({ ...form, valorCentavos })}
+                  required
+                />
               )}
 
               {planoPreview && (
@@ -550,7 +558,7 @@ export default function LancamentosPage() {
               {form.tipo === "temporario" && form.modoValor === "total" && (
                 <p className="-mt-2 text-xs text-cream-100/40">
                   Alguns bancos distribuem os centavos de forma diferente. Se o valor da parcela no seu app bancário
-                  estiver um pouco diferente, toque para editar e deixe idêntico.
+                  estiver um pouco diferente, toque em Parcela e insira o valor exato.
                 </p>
               )}
 
