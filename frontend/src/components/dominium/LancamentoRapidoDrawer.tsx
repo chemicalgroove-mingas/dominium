@@ -216,9 +216,9 @@ export function LancamentoRapidoDrawer({
               <button
                 type="button"
                 onClick={() => setDescricao(inserirDataDeHoje(descricao))}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-cream-100/50 hover:text-cream-100/80"
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg border border-cream-100/25 bg-navy-800/60 px-2 py-1 text-[11px] font-medium text-cream-100/70 hover:border-cream-100/40 hover:bg-navy-800 hover:text-cream-100"
               >
-                [Inserir Data]
+                Inserir data
               </button>
             </div>
           </div>
