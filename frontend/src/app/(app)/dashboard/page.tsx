@@ -157,32 +157,32 @@ export default function DashboardPage() {
       </button>
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-        <div className="card-dominium p-4">
+        <div className="card-dominium card-resumo overflow-hidden p-4">
           <p className="text-xs text-cream-100/60">Receita no período</p>
-          <p className="tabular text-2xl font-semibold text-success">{formatarMoeda(dados.receitaPeriodo)}</p>
+          <p className="tabular valor-resumo font-semibold text-success">{formatarMoeda(dados.receitaPeriodo)}</p>
         </div>
-        <div className="card-dominium p-4">
+        <div className="card-dominium card-resumo overflow-hidden p-4">
           <p className="text-xs text-cream-100/60">Despesa no período</p>
-          <p className="tabular text-2xl font-semibold text-danger">{formatarMoeda(dados.despesaPeriodo)}</p>
+          <p className="tabular valor-resumo font-semibold text-danger">{formatarMoeda(dados.despesaPeriodo)}</p>
         </div>
-        <div className="card-dominium p-4">
+        <div className="card-dominium card-resumo overflow-hidden p-4">
           <p className="text-xs text-cream-100/60">Saldo no período</p>
-          <p className={`tabular text-2xl font-semibold ${corPorSinal(dados.saldoPeriodo)}`}>
+          <p className={`tabular valor-resumo font-semibold ${corPorSinal(dados.saldoPeriodo)}`}>
             {formatarMoeda(dados.saldoPeriodo)}
           </p>
         </div>
       </div>
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <div className="card-dominium p-4">
+        <div className="card-dominium card-resumo overflow-hidden p-4">
           <p className="text-xs text-cream-100/60">Sobra do mês</p>
-          <p className={`tabular text-2xl font-semibold ${corPorSinal(dados.sobraLivreMes)}`}>
+          <p className={`tabular valor-resumo font-semibold ${corPorSinal(dados.sobraLivreMes)}`}>
             {formatarMoeda(dados.sobraLivreMes)}
           </p>
         </div>
-        <div className="card-dominium p-4">
+        <div className="card-dominium card-resumo overflow-hidden p-4">
           <p className="text-xs text-cream-100/60">Comprometimento</p>
-          <p className={`tabular text-2xl font-semibold ${corComprometimento(dados.comprometimento)}`}>
+          <p className={`tabular valor-resumo font-semibold ${corComprometimento(dados.comprometimento)}`}>
             {dados.comprometimento.toFixed(0)}%
           </p>
         </div>
@@ -197,31 +197,38 @@ export default function DashboardPage() {
           (diagnosticado renderizando o shell completo, com sidebar, em
           várias larguras — não só a grade isolada). md dá margem
           confortável nos dois lados da transição: empilhado até 767px,
-          colunas largas a partir de 768px, nunca o meio-termo apertado. */}
-      <div className="card-dominium grid grid-cols-1 divide-y divide-navy-700 p-4 md:grid-cols-2 md:divide-x md:divide-y-0">
+          colunas largas a partir de 768px. Mesmo com md, o valor em destaque
+          (aqui e nas duas linhas acima) usa .valor-resumo/.valor-resumo-sm
+          (globals.css) — reduz de forma fluida com a largura real do card
+          (container query) até um piso legível, pra faixas em que mesmo a
+          coluna "larga" ainda aperta um valor longo; overflow-hidden como
+          rede de segurança final. */}
+      <div className="card-dominium card-resumo overflow-hidden grid grid-cols-1 divide-y divide-navy-700 p-4 md:grid-cols-2 md:divide-x md:divide-y-0">
         <div className="pb-3 md:pb-0 md:pr-3">
           <p className="text-[11px] text-cream-100/60">Reserva Pessoal</p>
-          <p className="tabular text-lg font-semibold text-cream-100">{formatarMoeda(dados.patrimonioPessoal)}</p>
+          <p className="tabular valor-resumo-sm font-semibold text-cream-100">
+            {formatarMoeda(dados.patrimonioPessoal)}
+          </p>
         </div>
         <div className="pt-3 md:pt-0 md:pl-3">
           <p className="text-[11px] text-cream-100/60">Reserva Patrimonial</p>
-          <p className="tabular text-gold-gradient text-lg font-semibold">
+          <p className="tabular text-gold-gradient valor-resumo-sm font-semibold">
             {formatarMoeda(dados.patrimonioPatrimonial)}
           </p>
         </div>
       </div>
 
       {dados.janela !== "mes" && (
-        <div className="card-dominium grid grid-cols-1 divide-y divide-navy-700 p-4 md:grid-cols-2 md:divide-x md:divide-y-0">
+        <div className="card-dominium card-resumo overflow-hidden grid grid-cols-1 divide-y divide-navy-700 p-4 md:grid-cols-2 md:divide-x md:divide-y-0">
           <div className="pb-3 md:pb-0 md:pr-3">
             <p className="text-[11px] text-cream-100/60">Projeção Reserva Pessoal</p>
-            <p className="tabular text-lg font-semibold text-cream-100">
+            <p className="tabular valor-resumo-sm font-semibold text-cream-100">
               {formatarMoeda(dados.projecaoPatrimonioPessoal)}
             </p>
           </div>
           <div className="pt-3 md:pt-0 md:pl-3">
             <p className="text-[11px] text-cream-100/60">Projeção Reserva Patrimonial</p>
-            <p className="tabular text-gold-gradient text-lg font-semibold">
+            <p className="tabular text-gold-gradient valor-resumo-sm font-semibold">
               {formatarMoeda(dados.projecaoPatrimonioPatrimonial)}
             </p>
           </div>

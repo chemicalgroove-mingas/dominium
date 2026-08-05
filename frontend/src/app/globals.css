@@ -76,6 +76,27 @@ body {
   border-radius: 1rem;
 }
 
+/* Cards de resumo (Dashboard + ResumoDashboard): o valor em destaque reduz de
+   forma fluida conforme a própria largura do card aperta (container query,
+   não viewport — o mesmo viewport width pode dar colunas de larguras bem
+   diferentes dependendo de quantas colunas e se a Sidebar está visível), até
+   um piso legível. As duas âncoras de cada clamp() foram calibradas medindo a
+   largura real do pior valor esperado (mais dígitos) nos dois tamanhos —
+   não são números arbitrários. Ver diagnóstico da Fase 2 (PR #14). */
+.card-resumo {
+  container-type: inline-size;
+}
+
+.valor-resumo {
+  font-size: clamp(1rem, 0.12rem + 12.3cqw, 1.5rem);
+  line-height: 1.2;
+}
+
+.valor-resumo-sm {
+  font-size: clamp(0.9rem, 0.525rem + 6cqw, 1.125rem);
+  line-height: 1.25;
+}
+
 .input-dominium {
   background: var(--dominium-navy-950);
   border: 1px solid var(--dominium-navy-700);
