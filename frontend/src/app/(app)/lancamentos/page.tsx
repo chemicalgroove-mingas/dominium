@@ -1,12 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Clock, Pencil, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Clock, Pencil, Plus, Trash2 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useInstancias } from "@/contexts/InstanciasContext";
 import { useRecorte } from "@/contexts/RecorteContext";
 import { JanelaSelector } from "@/components/dominium/JanelaSelector";
+import { ResumoDashboard } from "@/components/dominium/ResumoDashboard";
 import { SyncStatusBadge } from "@/components/dominium/SyncStatusBadge";
 import { CampoMoeda } from "@/components/dominium/CampoMoeda";
 import { CampoMes } from "@/components/dominium/CampoMes";
@@ -23,7 +24,7 @@ import { tentarSincronizar } from "@/lib/offline/syncManager";
 import { useOutboxPendentes } from "@/lib/offline/useOutboxPendentes";
 import { lerSnapshot, salvarSnapshot } from "@/lib/offline/snapshots";
 import type { LancamentoLocal } from "@/lib/offline/types";
-import type { Grupo, Instancia, Lancamento, TipoLancamento } from "@/lib/types";
+import type { DashboardData, Grupo, Instancia, Lancamento, TipoLancamento } from "@/lib/types";
 
 // Espelha o mesmo criterio de competencia do backend
 // (intervaloEfetivoNaJanela/competenciaDoLancamento em
@@ -35,8 +36,29 @@ function produzParcelaNoMes(mesInicio: string, tipo: TipoLancamento, parcelas: n
   if (diferencaEmMeses(mesInicio, mesAlvo) < 0) return false;
   if (tipo === "fixo") return true;
   const mesFim = somarMeses(mesInicio, (parcelas || 1) - 1);
-  return diferencaEmMeses(mesAlvo, mesFim) <= 0;
+  return diferencaEmMeses(mesAlvo, mesFim) >= 0;
 }
+
+// "Sem descrição. Lançado em dd/mm/aaaa às hh:mm" — usada quando o usuário
+// deixa a descrição em branco, no instante do save (não no momento em que o
+// formulário foi aberto).
+function descricaoAutomatica() {
+  const agora = new Date();
+  const dd = String(agora.getDate()).padStart(2, "0");
+  const mm = String(agora.getMonth() + 1).padStart(2, "0");
+  const hh = String(agora.getHours()).padStart(2, "0");
+  const min = String(agora.getMinutes()).padStart(2, "0");
+  return `Sem descrição. Lançado em ${dd}/${mm}/${agora.getFullYear()} às ${hh}:${min}`;
+}
+
+// 99% dos gastos são compras pontuais (eventualmente parceladas); receitas
+// tendem a ser recorrentes (salário, aluguel recebido) — o toggle já abre no
+// que é mais comum pra cada grupo.
+const TIPO_PADRAO_POR_GRUPO: Record<Grupo, TipoLancamento> = {
+  gasto: "temporario",
+  receita: "fixo",
+  investimento: "fixo",
+};
 
 const FORM_VAZIO = {
   descricao: "",
@@ -48,6 +70,12 @@ const FORM_VAZIO = {
 };
 
 type DadosGaveta = { lancamentos: LancamentoLocal[]; totalJanela: number; carregando: boolean };
+
+const LABEL_LANCAR: Record<Grupo, string> = {
+  gasto: "Lançar gasto",
+  receita: "Lançar receita",
+  investimento: "Lançar",
+};
 
 const LABEL_GRUPO_BOTAO: Record<Grupo, string> = {
   gasto: "Gastos",
@@ -63,7 +91,8 @@ export default function LancamentosPage() {
   const pendentesAnterioresRef = useRef(0);
 
   const [grupo, setGrupo] = useState<Grupo>("gasto");
-  const [instanciaSelecionadaId, setInstanciaSelecionadaId] = useState<string | null>(null);
+  const [estado, setEstado] = useState<"geral" | "foco">("geral");
+  const [instanciaFoco, setInstanciaFoco] = useState<Instancia | null>(null);
   const [lancamentoEditando, setLancamentoEditando] = useState<Lancamento | null>(null);
   const [novaInstancia, setNovaInstancia] = useState<{ nome: string; cor: string } | null>(null);
   const [instanciaEditando, setInstanciaEditando] = useState<{ id: string; nome: string; cor: string } | null>(null);
@@ -74,22 +103,21 @@ export default function LancamentosPage() {
   const [salvando, setSalvando] = useState(false);
 
   const [gavetas, setGavetas] = useState<Record<string, DadosGaveta>>({});
+  const [resumo, setResumo] = useState<DashboardData | null>(null);
 
   const instanciasDoGrupo = useMemo(
     () => instancias.filter((i) => i.grupo === grupo && i.ativa),
     [instancias, grupo]
   );
 
-  // Instância efetivamente selecionada na grade: a escolhida explicitamente
-  // pelo usuário, se ainda existir no grupo atual; senão a primeira do
-  // grupo. Derivado a cada render (sem estado próprio) pra não precisar de
-  // um efeito só pra manter as duas fontes em sincronia.
-  const instanciaFoco = useMemo(() => {
-    const selecionada = instanciaSelecionadaId
-      ? instanciasDoGrupo.find((i) => i.id === instanciaSelecionadaId)
-      : undefined;
-    return selecionada ?? instanciasDoGrupo[0] ?? null;
-  }, [instanciasDoGrupo, instanciaSelecionadaId]);
+  const carregarResumo = useCallback(async () => {
+    try {
+      const data = await api.get<DashboardData>(`/api/dashboard?janela=${janela}&mesReferencia=${mesReferencia}`);
+      setResumo(data);
+    } catch {
+      // Offline/erro de rede: mantém o resumo que já estava em tela.
+    }
+  }, [janela, mesReferencia]);
 
   const carregarGavetaDe = useCallback(
     async (instancia: Instancia) => {
@@ -175,34 +203,33 @@ export default function LancamentosPage() {
     carregarTodasGavetas();
   }, [carregarTodasGavetas]);
 
+  useEffect(() => {
+    carregarResumo();
+  }, [carregarResumo]);
+
   // Quando um item pendente termina de sincronizar (a contagem cai), busca de
   // novo do servidor pra reconciliar totais/valores derivados (pagas, etc.).
   useEffect(() => {
     if (pendentesUsuario.length < pendentesAnterioresRef.current) {
       carregarTodasGavetas();
+      carregarResumo();
     }
     pendentesAnterioresRef.current = pendentesUsuario.length;
-  }, [pendentesUsuario.length, carregarTodasGavetas]);
+  }, [pendentesUsuario.length, carregarTodasGavetas, carregarResumo]);
 
-  // Reseta o formulário quando a instância efetivamente selecionada muda de
-  // identidade — entrada inicial (assim que instanciasDoGrupo carrega), troca
-  // de grupo ou de instância pela grade. Ajuste durante a renderização (não
-  // num efeito): evita o cascading render de um setState síncrono em effect,
-  // e não interfere no formulário de edição (mesma instância, id inalterado).
-  const [ultimaInstanciaFocoId, setUltimaInstanciaFocoId] = useState<string | null>(null);
-  if ((instanciaFoco?.id ?? null) !== ultimaInstanciaFocoId) {
-    setUltimaInstanciaFocoId(instanciaFoco?.id ?? null);
+  // Entrada no ambiente prático (destino do botão "Lançar gasto/receita" de
+  // qualquer instância) e também usada pela grade interna pra trocar de
+  // instância sem sair da tela.
+  function abrirFoco(instancia: Instancia) {
+    setInstanciaFoco(instancia);
     setLancamentoEditando(null);
-    setForm(instanciaFoco ? { ...FORM_VAZIO, mesInicio: mesReferencia } : FORM_VAZIO);
+    setForm({ ...FORM_VAZIO, tipo: TIPO_PADRAO_POR_GRUPO[grupo], mesInicio: mesReferencia });
     setErroForm("");
-  }
-
-  function selecionarInstancia(instancia: Instancia) {
-    setInstanciaSelecionadaId(instancia.id);
+    setEstado("foco");
   }
 
   function abrirEdicaoLancamento(instancia: Instancia, lancamento: Lancamento) {
-    setInstanciaSelecionadaId(instancia.id);
+    setInstanciaFoco(instancia);
     setLancamentoEditando(lancamento);
     setForm({
       descricao: lancamento.descricao,
@@ -213,9 +240,17 @@ export default function LancamentosPage() {
       observacoes: lancamento.observacoes || "",
     });
     setErroForm("");
+    setEstado("foco");
   }
 
   const parcelasCalculadas = form.tipo === "temporario" && form.prazoMeses ? form.prazoMeses : null;
+
+  function voltarParaGeral() {
+    setEstado("geral");
+    setInstanciaFoco(null);
+    setLancamentoEditando(null);
+    setErroForm("");
+  }
 
   async function criarInstancia(e: React.FormEvent) {
     e.preventDefault();
@@ -258,7 +293,7 @@ export default function LancamentosPage() {
 
     const payload = {
       instanciaId: instanciaFoco.id,
-      descricao: form.descricao,
+      descricao: form.descricao.trim() || descricaoAutomatica(),
       valor: valorNumerico,
       tipo: form.tipo,
       parcelas: form.tipo === "temporario" ? parcelasCalculadas : null,
@@ -271,9 +306,9 @@ export default function LancamentosPage() {
       setSalvando(true);
       try {
         await api.put(`/api/lancamentos/${lancamentoEditando.id}/completo`, payload);
-        setForm({ ...FORM_VAZIO, mesInicio: mesReferencia });
+        setForm({ ...FORM_VAZIO, tipo: TIPO_PADRAO_POR_GRUPO[grupo], mesInicio: mesReferencia });
         setLancamentoEditando(null);
-        await carregarTodasGavetas();
+        await Promise.all([carregarTodasGavetas(), carregarResumo()]);
       } catch (err) {
         setErroForm(err instanceof ApiError ? err.message : "Nao foi possivel salvar o lancamento.");
       } finally {
@@ -285,8 +320,9 @@ export default function LancamentosPage() {
     if (!usuario) return;
 
     // Regra do seletor pós-lançamento: se o mês selecionado já enxerga o
-    // lançamento recém-criado, mantém onde está; senão pula pro mês de
-    // início do lançamento, pra ele ficar sempre visível no demonstrativo.
+    // lançamento recém-criado (tem parcela nele), mantém onde está; senão
+    // pula pro mês de início do lançamento, pra ele ficar sempre visível no
+    // demonstrativo.
     const mesAlvo = produzParcelaNoMes(form.mesInicio, form.tipo, parcelasCalculadas, mesReferencia)
       ? mesReferencia
       : form.mesInicio;
@@ -313,7 +349,7 @@ export default function LancamentosPage() {
     if (manterInstancia) {
       setForm((f) => ({ ...f, descricao: "", valorCentavos: 0 }));
     } else {
-      setForm({ ...FORM_VAZIO, mesInicio: mesAlvo });
+      setForm({ ...FORM_VAZIO, tipo: TIPO_PADRAO_POR_GRUPO[grupo], mesInicio: mesAlvo });
     }
     setErroForm("");
     tentarSincronizar(usuario.id);
@@ -321,17 +357,17 @@ export default function LancamentosPage() {
 
   async function excluirLancamento(id: string) {
     await api.delete(`/api/lancamentos/${id}`);
-    await carregarTodasGavetas();
+    await Promise.all([carregarTodasGavetas(), carregarResumo()]);
   }
 
   async function excluirInstancia() {
     if (!instanciaParaExcluir) return;
     await api.delete(`/api/instancias/${instanciaParaExcluir.id}`);
     if (instanciaFoco?.id === instanciaParaExcluir.id) {
-      setInstanciaSelecionadaId(null);
+      voltarParaGeral();
     }
     setInstanciaParaExcluir(null);
-    await recarregar();
+    await Promise.all([recarregar(), carregarResumo()]);
   }
 
   return (
@@ -347,15 +383,24 @@ export default function LancamentosPage() {
         </div>
       </div>
 
+      {resumo && (
+        <div className="mb-4">
+          <ResumoDashboard dados={resumo} compacto />
+        </div>
+      )}
+
       <div className="mb-4">
         <SeletorMesReferencia />
       </div>
 
-      <div className="mb-4 flex gap-2">
+      <div className="mb-6 flex gap-2">
         {(["gasto", "receita"] as Grupo[]).map((g) => (
           <button
             key={g}
-            onClick={() => setGrupo(g)}
+            onClick={() => {
+              setGrupo(g);
+              voltarParaGeral();
+            }}
             className={`min-h-[44px] flex-1 rounded-xl border text-sm font-medium ${
               grupo === g ? "border-gold-500 bg-gold-500/10 text-gold-300" : "border-navy-700 text-cream-100/70"
             }`}
@@ -365,153 +410,178 @@ export default function LancamentosPage() {
         ))}
       </div>
 
-      <div className="mb-6">
-        <p className="mb-2 text-sm text-cream-100/70">Instância</p>
-        <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-          {instanciasDoGrupo.map((i) => (
-            <button
-              key={i.id}
-              type="button"
-              onClick={() => selecionarInstancia(i)}
-              className={`flex flex-col items-center gap-1 rounded-xl border p-2.5 text-center ${
-                instanciaFoco?.id === i.id ? "border-gold-500 bg-gold-500/10" : "border-navy-700"
-              }`}
-            >
-              <span className="h-3 w-3 rounded-full" style={{ background: i.cor }} />
-              <span className="w-full truncate text-[11px] text-cream-100/80">{i.nome}</span>
-            </button>
-          ))}
+      {estado === "geral" && (
+        <>
+          <div className="mb-4 grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
+            {instanciasDoGrupo.map((i) => (
+              <GavetaCard
+                key={i.id}
+                instancia={i}
+                dados={gavetas[i.id]}
+                mesReferencia={mesReferencia}
+                janela={janela}
+                labelLancar={LABEL_LANCAR[grupo]}
+                onLancar={() => abrirFoco(i)}
+                onEditarInstancia={() => setInstanciaEditando({ id: i.id, nome: i.nome, cor: i.cor })}
+                onExcluirInstancia={() => setInstanciaParaExcluir(i)}
+                onEditarLancamento={(l) => abrirEdicaoLancamento(i, l)}
+                onExcluirLancamento={excluirLancamento}
+              />
+            ))}
+          </div>
+
           {instanciasDoGrupo.length === 0 && (
-            <p className="col-span-3 py-2 text-center text-xs text-cream-100/50 sm:col-span-4">
+            <div className="card-dominium mb-4 p-6 text-center text-sm text-cream-100/70">
               Nenhuma instância de {grupo === "gasto" ? "gasto" : "receita"} ainda. Crie a primeira.
-            </p>
+            </div>
           )}
-        </div>
 
-        <button
-          onClick={() => setNovaInstancia({ nome: "", cor: COR_SUGERIDA_POR_GRUPO[grupo] })}
-          className="mt-2 flex w-full items-center justify-center gap-1 rounded-full border border-dashed border-gold-500/50 px-4 py-2.5 text-sm text-gold-300"
-        >
-          <Plus size={16} /> Nova instância
-        </button>
-      </div>
-
-      {instanciaFoco && (
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:items-start">
-          <form
-            onSubmit={(e) => registrarLancamento(e, false)}
-            className="card-dominium flex flex-col gap-4 p-5"
+          <button
+            onClick={() => setNovaInstancia({ nome: "", cor: COR_SUGERIDA_POR_GRUPO[grupo] })}
+            className="flex w-full items-center justify-center gap-1 rounded-full border border-dashed border-gold-500/50 px-4 py-3 text-sm text-gold-300"
           >
-            <div>
-              <label className="mb-1 block text-sm text-cream-100/80">Descrição</label>
-              <input
-                className="input-dominium"
-                value={form.descricao}
-                onChange={(e) => setForm({ ...form, descricao: e.target.value })}
+            <Plus size={16} /> Nova instância
+          </button>
+        </>
+      )}
+
+      {estado === "foco" && instanciaFoco && (
+        <div>
+          <button
+            onClick={voltarParaGeral}
+            className="mb-4 flex items-center gap-1 text-sm text-cream-100/70 hover:text-gold-300"
+          >
+            <ArrowLeft size={16} /> Voltar
+          </button>
+
+          {/* Grade rápida de instâncias (mesmo padrão do Lançamento Rápido do
+              Dashboard): permite trocar de instância sem voltar pra visão
+              geral, sem duplicar a listagem completa de cada uma. */}
+          <div className="mb-4">
+            <p className="mb-2 text-sm text-cream-100/70">Instância</p>
+            <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+              {instanciasDoGrupo.map((i) => (
+                <button
+                  key={i.id}
+                  type="button"
+                  onClick={() => abrirFoco(i)}
+                  className={`flex flex-col items-center gap-1 rounded-xl border p-2.5 text-center ${
+                    instanciaFoco.id === i.id ? "border-gold-500 bg-gold-500/10" : "border-navy-700"
+                  }`}
+                >
+                  <span className="h-3 w-3 rounded-full" style={{ background: i.cor }} />
+                  <span className="w-full truncate text-[11px] text-cream-100/80">{i.nome}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:items-start">
+            <form
+              onSubmit={(e) => registrarLancamento(e, false)}
+              className="card-dominium flex flex-col gap-4 p-5"
+            >
+              <CampoMoeda
+                label="Valor (parcela/mensalidade)"
+                valorCentavos={form.valorCentavos}
+                onChange={(valorCentavos) => setForm({ ...form, valorCentavos })}
                 required
-                autoFocus
               />
-            </div>
 
-            <CampoMoeda
-              label="Valor (parcela/mensalidade)"
-              valorCentavos={form.valorCentavos}
-              onChange={(valorCentavos) => setForm({ ...form, valorCentavos })}
-              required
-            />
-
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => setForm({ ...form, tipo: "fixo" })}
-                className={`min-h-[44px] rounded-xl border text-sm ${
-                  form.tipo === "fixo" ? "border-gold-500 text-gold-300" : "border-navy-700 text-cream-100/60"
-                }`}
-              >
-                Fixo
-              </button>
-              <button
-                type="button"
-                onClick={() => setForm({ ...form, tipo: "temporario" })}
-                className={`min-h-[44px] rounded-xl border text-sm ${
-                  form.tipo === "temporario"
-                    ? "border-gold-500 text-gold-300"
-                    : "border-navy-700 text-cream-100/60"
-                }`}
-              >
-                Temporário
-              </button>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <CampoMes
-                label="Mês início"
-                value={form.mesInicio}
-                onChange={(v) => setForm({ ...form, mesInicio: v })}
-              />
-              <CampoPrazoMeses
-                label="Prazo (meses)"
-                value={form.prazoMeses}
-                onChange={(v) => setForm({ ...form, prazoMeses: v })}
-                disabled={form.tipo === "fixo"}
-              />
-            </div>
-
-            {form.tipo === "temporario" && (
-              <p className="-mt-2 text-xs text-cream-100/50">
-                {parcelasCalculadas && parcelasCalculadas >= 1
-                  ? `${parcelasCalculadas} parcela${parcelasCalculadas === 1 ? "" : "s"} · termina em ${formatarMesLabel(
-                      somarMeses(form.mesInicio, parcelasCalculadas - 1)
-                    )}.`
-                  : "Informe o prazo em meses."}
-              </p>
-            )}
-
-            <div>
-              <label className="mb-1 block text-sm text-cream-100/80">Observações (opcional)</label>
-              <input
-                className="input-dominium"
-                value={form.observacoes}
-                onChange={(e) => setForm({ ...form, observacoes: e.target.value })}
-              />
-            </div>
-
-            {erroForm && <p className="text-sm text-danger">{erroForm}</p>}
-
-            {lancamentoEditando ? (
-              <button type="submit" className="btn-gold" disabled={salvando}>
-                {salvando ? "Salvando alteração..." : "Alterar lançamento"}
-              </button>
-            ) : (
               <div className="grid grid-cols-2 gap-2">
-                <button type="submit" className="btn-gold min-h-[44px] text-sm" disabled={salvando}>
-                  {salvando ? "Salvando..." : "Salvar registro"}
+                <button
+                  type="button"
+                  onClick={() => setForm({ ...form, tipo: "temporario" })}
+                  className={`min-h-[44px] rounded-xl border text-sm ${
+                    form.tipo === "temporario"
+                      ? "border-gold-500 text-gold-300"
+                      : "border-navy-700 text-cream-100/60"
+                  }`}
+                >
+                  Temporário
                 </button>
                 <button
                   type="button"
-                  onClick={(e) => registrarLancamento(e, true)}
-                  disabled={salvando}
-                  className="min-h-[44px] rounded-xl border border-gold-500/60 text-sm text-gold-300"
+                  onClick={() => setForm({ ...form, tipo: "fixo" })}
+                  className={`min-h-[44px] rounded-xl border text-sm ${
+                    form.tipo === "fixo" ? "border-gold-500 text-gold-300" : "border-navy-700 text-cream-100/60"
+                  }`}
                 >
-                  Salvar e lançar outro
+                  Fixo
                 </button>
               </div>
-            )}
-          </form>
 
-          <GavetaCard
-            instancia={instanciaFoco}
-            dados={gavetas[instanciaFoco.id]}
-            mesReferencia={mesReferencia}
-            janela={janela}
-            onEditarInstancia={() =>
-              setInstanciaEditando({ id: instanciaFoco.id, nome: instanciaFoco.nome, cor: instanciaFoco.cor })
-            }
-            onExcluirInstancia={() => setInstanciaParaExcluir(instanciaFoco)}
-            onEditarLancamento={(l) => abrirEdicaoLancamento(instanciaFoco, l)}
-            onExcluirLancamento={excluirLancamento}
-            sticky
-          />
+              <div className="grid grid-cols-2 gap-3">
+                <CampoMes
+                  label="Mês início"
+                  value={form.mesInicio}
+                  onChange={(v) => setForm({ ...form, mesInicio: v })}
+                />
+                <CampoPrazoMeses
+                  label="Prazo (meses)"
+                  value={form.prazoMeses}
+                  onChange={(v) => setForm({ ...form, prazoMeses: v })}
+                  disabled={form.tipo === "fixo"}
+                />
+              </div>
+
+              {form.tipo === "temporario" && (
+                <p className="-mt-2 text-xs text-cream-100/50">
+                  {parcelasCalculadas && parcelasCalculadas >= 1
+                    ? `${parcelasCalculadas} parcela${parcelasCalculadas === 1 ? "" : "s"} · termina em ${formatarMesLabel(
+                        somarMeses(form.mesInicio, parcelasCalculadas - 1)
+                      )}.`
+                    : "Informe o prazo em meses."}
+                </p>
+              )}
+
+              <div>
+                <label className="mb-1 block text-sm text-cream-100/80">Descrição (opcional)</label>
+                <input
+                  className="input-dominium"
+                  value={form.descricao}
+                  onChange={(e) => setForm({ ...form, descricao: e.target.value })}
+                  placeholder="Sem descrição."
+                />
+              </div>
+
+              {erroForm && <p className="text-sm text-danger">{erroForm}</p>}
+
+              {lancamentoEditando ? (
+                <button type="submit" className="btn-gold" disabled={salvando}>
+                  {salvando ? "Salvando alteração..." : "Alterar lançamento"}
+                </button>
+              ) : (
+                <div className="grid grid-cols-2 gap-2">
+                  <button type="submit" className="btn-gold min-h-[44px] text-sm" disabled={salvando}>
+                    {salvando ? "Salvando..." : "Salvar registro"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => registrarLancamento(e, true)}
+                    disabled={salvando}
+                    className="min-h-[44px] rounded-xl border border-gold-500/60 text-sm text-gold-300"
+                  >
+                    Salvar e lançar outro
+                  </button>
+                </div>
+              )}
+            </form>
+
+            <GavetaCard
+              instancia={instanciaFoco}
+              dados={gavetas[instanciaFoco.id]}
+              mesReferencia={mesReferencia}
+              janela={janela}
+              onEditarInstancia={() =>
+                setInstanciaEditando({ id: instanciaFoco.id, nome: instanciaFoco.nome, cor: instanciaFoco.cor })
+              }
+              onExcluirInstancia={() => setInstanciaParaExcluir(instanciaFoco)}
+              onEditarLancamento={(l) => abrirEdicaoLancamento(instanciaFoco, l)}
+              onExcluirLancamento={excluirLancamento}
+              sticky
+            />
+          </div>
         </div>
       )}
 
@@ -635,6 +705,8 @@ function GavetaCard({
   dados,
   mesReferencia,
   janela,
+  labelLancar,
+  onLancar,
   onEditarInstancia,
   onExcluirInstancia,
   onEditarLancamento,
@@ -645,6 +717,8 @@ function GavetaCard({
   dados?: DadosGaveta;
   mesReferencia?: string;
   janela?: string;
+  labelLancar?: string;
+  onLancar?: () => void;
   onEditarInstancia: () => void;
   onExcluirInstancia: () => void;
   onEditarLancamento: (l: LancamentoLocal) => void;
@@ -695,6 +769,15 @@ function GavetaCard({
             </p>
           )}
         </div>
+        {onLancar && labelLancar && (
+          <button
+            onClick={onLancar}
+            className="shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium"
+            style={{ borderColor: instancia.cor, color: instancia.cor }}
+          >
+            {labelLancar}
+          </button>
+        )}
       </div>
 
       {!carregando && lancamentos.length === 0 && (
