@@ -14,6 +14,7 @@ import { CampoMes } from "@/components/dominium/CampoMes";
 import { CampoPrazoMeses } from "@/components/dominium/CampoPrazoMeses";
 import { SeletorMesReferencia } from "@/components/dominium/SeletorMesReferencia";
 import { formatarMoeda } from "@/lib/format";
+import { descricaoAutomatica, inserirDataDeHoje } from "@/lib/descricaoLancamento";
 import { diferencaEmMeses, formatarMesInline, formatarMesLabel, somarMeses } from "@/lib/mes";
 import { centavosParaNumero, numeroParaCentavos } from "@/lib/moeda";
 import { calcularPlanoTemporarioPreview } from "@/lib/parcelamento";
@@ -38,18 +39,6 @@ function produzParcelaNoMes(mesInicio: string, tipo: TipoLancamento, parcelas: n
   if (tipo === "fixo") return true;
   const mesFim = somarMeses(mesInicio, (parcelas || 1) - 1);
   return diferencaEmMeses(mesAlvo, mesFim) >= 0;
-}
-
-// "Sem descrição. Lançado em dd/mm/aaaa às hh:mm" — usada quando o usuário
-// deixa a descrição em branco, no instante do save (não no momento em que o
-// formulário foi aberto).
-function descricaoAutomatica() {
-  const agora = new Date();
-  const dd = String(agora.getDate()).padStart(2, "0");
-  const mm = String(agora.getMonth() + 1).padStart(2, "0");
-  const hh = String(agora.getHours()).padStart(2, "0");
-  const min = String(agora.getMinutes()).padStart(2, "0");
-  return `Sem descrição. Lançado em ${dd}/${mm}/${agora.getFullYear()} às ${hh}:${min}`;
 }
 
 // 99% dos gastos são compras pontuais (eventualmente parceladas); receitas
@@ -613,12 +602,21 @@ export default function LancamentosPage() {
                 <label className="mb-1 block text-sm text-cream-100/80">
                   {grupo === "gasto" ? "Descrição do Gasto" : "Descrição da Receita"}
                 </label>
-                <input
-                  className="input-dominium"
-                  value={form.descricao}
-                  onChange={(e) => setForm({ ...form, descricao: e.target.value })}
-                  placeholder="Sem descrição."
-                />
+                <div className="relative">
+                  <input
+                    className="input-dominium pr-28"
+                    value={form.descricao}
+                    onChange={(e) => setForm({ ...form, descricao: e.target.value })}
+                    placeholder="Sem descrição."
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setForm({ ...form, descricao: inserirDataDeHoje(form.descricao) })}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg border border-cream-100/25 bg-navy-800/60 px-2 py-1 text-[11px] font-medium text-cream-100/70 hover:border-cream-100/40 hover:bg-navy-800 hover:text-cream-100"
+                  >
+                    Inserir data
+                  </button>
+                </div>
               </div>
 
               {erroForm && <p className="text-sm text-danger">{erroForm}</p>}
