@@ -7,7 +7,10 @@ import { useInstancias } from "@/contexts/InstanciasContext";
 import { CampoMoeda } from "@/components/dominium/CampoMoeda";
 import { CampoPrazoMeses } from "@/components/dominium/CampoPrazoMeses";
 import { validarValorCentavos } from "@/lib/validacaoLancamento";
+import { descricaoAutomatica, inserirDataDeHoje } from "@/lib/descricaoLancamento";
 import { mesAtual } from "@/lib/mes";
+import { centavosParaNumero } from "@/lib/moeda";
+import { calcularPlanoTemporarioPreview } from "@/lib/parcelamento";
 import { enqueuarCriacaoLancamento } from "@/lib/offline/outbox";
 import { tentarSincronizar } from "@/lib/offline/syncManager";
 import type { Instancia } from "@/lib/types";
@@ -35,9 +38,20 @@ export function LancamentoRapidoDrawer({
   const [descricao, setDescricao] = useState("");
   const [valorCentavos, setValorCentavos] = useState(0);
   const [prazoMeses, setPrazoMeses] = useState<number | "">(1);
+  // 'total' (default): no momento do registro o usuário tem o total da
+  // compra na cabeça, não a parcela — mesma filosofia do modal completo
+  // (ver backend/src/utils/parcelamento.js, calcularPlanoTemporario).
+  const [modoValor, setModoValor] = useState<"total" | "parcela">("total");
   const [erro, setErro] = useState("");
-  const [erroDescricao, setErroDescricao] = useState("");
   const [salvando, setSalvando] = useState(false);
+
+  // Prévia local só pra decidir se mostra o aviso de arredondamento — o
+  // Rápido não exibe o número calculado (fica pro modal completo), só avisa
+  // quando a divisão pode gerar resíduo (prazo > 1 no modo Total).
+  const planoPreview =
+    modoValor === "total" && prazoMeses && prazoMeses > 1 && valorCentavos > 0
+      ? calcularPlanoTemporarioPreview(centavosParaNumero(valorCentavos), prazoMeses)
+      : null;
 
   // Limpa os campos de um lancamento pra permitir o proximo em seguida, sem
   // perder a instancia selecionada — agiliza lancamentos consecutivos na
@@ -46,8 +60,8 @@ export function LancamentoRapidoDrawer({
     setDescricao("");
     setValorCentavos(0);
     setPrazoMeses(1);
+    setModoValor("total");
     setErro("");
-    setErroDescricao("");
   }
 
   function fecharTudo() {
@@ -63,21 +77,19 @@ export function LancamentoRapidoDrawer({
       setErro("Selecione uma instância para registrar.");
       return;
     }
-    const descricaoTratada = descricao.trim();
-    if (!descricaoTratada) {
-      setErroDescricao("Informe uma descrição.");
-      return;
-    }
     const erroValor = validarValorCentavos(valorCentavos);
     if (erroValor) {
       setErro(erroValor);
       return;
     }
     const parcelas = prazoMeses && prazoMeses >= 1 ? prazoMeses : 1;
+    // Descrição é opcional — vazia cai no mesmo auto-preenchimento do modal
+    // completo ("Sem descrição. Lançado em..."), pra nunca haver lançamento
+    // sem identificação nenhuma no histórico.
+    const descricaoFinal = descricao.trim() || descricaoAutomatica();
 
     setSalvando(true);
     setErro("");
-    setErroDescricao("");
     try {
       // Mesmo campo/modelo de descricao dos lancamentos normais
       // (baseSchema.descricao em backend/src/routes/lancamentos.js) — nao ha
@@ -85,12 +97,16 @@ export function LancamentoRapidoDrawer({
       // historico/listagem de Lancamentos.
       const payload = {
         instanciaId: instanciaSelecionada.id,
-        descricao: descricaoTratada,
+        descricao: descricaoFinal,
         valor: valorCentavos / 100,
         tipo: "temporario" as const,
         parcelas,
         mesInicio: mesAtual(),
         observacoes: null,
+        // Mesma conversão total→parcela do modal completo — o backend
+        // calcula e persiste, aqui é só o flag (ver lancamentos.js,
+        // resolverValorEResiduo).
+        modoValor,
       };
 
       // Mesmo pipeline usado pelo form completo: enfileira, sincroniza em
@@ -98,7 +114,7 @@ export function LancamentoRapidoDrawer({
       await enqueuarCriacaoLancamento(usuario.id, payload);
       tentarSincronizar(usuario.id);
 
-      onToast(`${descricaoTratada} · registrado.`);
+      onToast(`${descricaoFinal} · registrado.`);
 
       if (manterAberto) {
         limparCamposMantendoInstancia();
@@ -155,22 +171,57 @@ export function LancamentoRapidoDrawer({
 
           <div className="mb-4">
             <label className="mb-1 block text-sm text-cream-100/80">Descrição</label>
-            <input
-              className="input-dominium"
-              value={descricao}
-              onChange={(e) => {
-                setDescricao(e.target.value);
-                setErroDescricao("");
-              }}
-              placeholder="Ex.: Supermercado, mensalidade, compra notebook..."
-            />
-            {erroDescricao && <p className="mt-1 text-xs text-danger">{erroDescricao}</p>}
+            <div className="relative">
+              <input
+                className="input-dominium pr-24"
+                value={descricao}
+                onChange={(e) => setDescricao(e.target.value)}
+                placeholder="Ex.: Supermercado, mensalidade, compra notebook..."
+              />
+              <button
+                type="button"
+                onClick={() => setDescricao(inserirDataDeHoje(descricao))}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-cream-100/50 hover:text-cream-100/80"
+              >
+                [Inserir Data]
+              </button>
+            </div>
           </div>
 
-          <div className="mb-2 grid grid-cols-2 gap-3">
-            <CampoMoeda label="Valor" valorCentavos={valorCentavos} onChange={setValorCentavos} />
+          <div className="mb-1 flex items-center justify-between gap-2">
+            <label className="text-sm text-cream-100/80">Valor</label>
+            <div className="flex shrink-0 gap-1.5">
+              <button
+                type="button"
+                onClick={() => setModoValor("total")}
+                className={`rounded-lg border px-2.5 py-1 text-xs font-medium ${
+                  modoValor === "total" ? "border-gold-500 text-gold-300" : "border-navy-700 text-cream-100/60"
+                }`}
+              >
+                Total
+              </button>
+              <button
+                type="button"
+                onClick={() => setModoValor("parcela")}
+                className={`rounded-lg border px-2.5 py-1 text-xs font-medium ${
+                  modoValor === "parcela" ? "border-gold-500 text-gold-300" : "border-navy-700 text-cream-100/60"
+                }`}
+              >
+                Parcela
+              </button>
+            </div>
+          </div>
+
+          <div className="mb-1 grid grid-cols-2 gap-3">
+            <CampoMoeda valorCentavos={valorCentavos} onChange={setValorCentavos} />
             <CampoPrazoMeses label="Parcelas" value={prazoMeses} onChange={setPrazoMeses} />
           </div>
+
+          {planoPreview && (
+            <p className="mb-2 text-[11px] text-cream-100/40">
+              Centavos podem variar do seu banco — toque em Parcela para o valor exato.
+            </p>
+          )}
 
           {erro && <p className="mt-2 text-sm text-danger">{erro}</p>}
         </div>
