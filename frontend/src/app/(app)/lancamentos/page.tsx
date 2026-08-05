@@ -604,7 +604,7 @@ export default function LancamentosPage() {
                 </label>
                 <div className="relative">
                   <input
-                    className="input-dominium pr-24"
+                    className="input-dominium pr-28"
                     value={form.descricao}
                     onChange={(e) => setForm({ ...form, descricao: e.target.value })}
                     placeholder="Sem descrição."

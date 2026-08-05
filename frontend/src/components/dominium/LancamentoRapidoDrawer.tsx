@@ -208,10 +208,10 @@ export function LancamentoRapidoDrawer({
             <label className="mb-1 block text-sm text-cream-100/80">Descrição</label>
             <div className="relative">
               <input
-                className="input-dominium pr-24"
+                className="input-dominium pr-28"
                 value={descricao}
                 onChange={(e) => setDescricao(e.target.value)}
-                placeholder="Ex.: Supermercado, mensalidade, compra notebook..."
+                placeholder="Ex.: Farmácia..."
               />
               <button
                 type="button"
