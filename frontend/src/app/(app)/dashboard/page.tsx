@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Area, AreaChart, Bar, BarChart, ResponsiveContainer, Tooltip, XAxis } from "recharts";
 import { FileText, Plus } from "lucide-react";
 import { API_URL, api } from "@/lib/api";
-import { formatarDataHora, formatarMoeda } from "@/lib/format";
+import { corComprometimento, corPorSinal, formatarDataHora, formatarMoeda } from "@/lib/format";
 import { formatarMesCurto, formatarMesLabel } from "@/lib/mes";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRecorte } from "@/contexts/RecorteContext";
@@ -156,55 +156,79 @@ export default function DashboardPage() {
         <Plus size={20} /> Lançamento rápido
       </button>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <div className="card-dominium p-4">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        <div className="card-dominium card-resumo overflow-hidden p-4">
           <p className="text-xs text-cream-100/60">Receita no período</p>
-          <p className="tabular text-2xl font-semibold text-success">{formatarMoeda(dados.receitaPeriodo)}</p>
+          <p className="tabular valor-resumo font-semibold text-success">{formatarMoeda(dados.receitaPeriodo)}</p>
         </div>
-        <div className="card-dominium p-4">
+        <div className="card-dominium card-resumo overflow-hidden p-4">
           <p className="text-xs text-cream-100/60">Despesa no período</p>
-          <p className="tabular text-2xl font-semibold text-danger">{formatarMoeda(dados.despesaPeriodo)}</p>
+          <p className="tabular valor-resumo font-semibold text-danger">{formatarMoeda(dados.despesaPeriodo)}</p>
         </div>
-        <div className="card-dominium p-4">
+        <div className="card-dominium card-resumo overflow-hidden p-4">
           <p className="text-xs text-cream-100/60">Saldo no período</p>
-          <p className="tabular text-gold-gradient text-2xl font-semibold">{formatarMoeda(dados.saldoPeriodo)}</p>
+          <p className={`tabular valor-resumo font-semibold ${corPorSinal(dados.saldoPeriodo)}`}>
+            {formatarMoeda(dados.saldoPeriodo)}
+          </p>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <div className="card-dominium p-4">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <div className="card-dominium card-resumo overflow-hidden p-4">
           <p className="text-xs text-cream-100/60">Sobra do mês</p>
-          <p className="tabular text-2xl font-semibold text-success">{formatarMoeda(dados.sobraLivreMes)}</p>
+          <p className={`tabular valor-resumo font-semibold ${corPorSinal(dados.sobraLivreMes)}`}>
+            {formatarMoeda(dados.sobraLivreMes)}
+          </p>
         </div>
-        <div className="card-dominium p-4">
+        <div className="card-dominium card-resumo overflow-hidden p-4">
           <p className="text-xs text-cream-100/60">Comprometimento</p>
-          <p className="tabular text-2xl font-semibold text-cream-100">{dados.comprometimento.toFixed(0)}%</p>
+          <p className={`tabular valor-resumo font-semibold ${corComprometimento(dados.comprometimento)}`}>
+            {dados.comprometimento.toFixed(0)}%
+          </p>
         </div>
-        <div className="card-dominium grid grid-cols-2 divide-x divide-navy-700 p-4">
-          <div className="pr-3">
-            <p className="text-[11px] text-cream-100/60">Reserva Pessoal</p>
-            <p className="tabular text-lg font-semibold text-cream-100">{formatarMoeda(dados.patrimonioPessoal)}</p>
-          </div>
-          <div className="pl-3">
-            <p className="text-[11px] text-cream-100/60">Reserva Patrimonial</p>
-            <p className="tabular text-gold-gradient text-lg font-semibold">
-              {formatarMoeda(dados.patrimonioPatrimonial)}
-            </p>
-          </div>
+      </div>
+
+      {/* Cards combinados (Reserva/Projeção): dividem em duas colunas só a
+          partir de md. O breakpoint dos cards de resumo (aqui e nas duas
+          linhas acima) é md, não sm — a Sidebar (w-60, Nav.tsx) aparece
+          exatamente em sm (640px) e disputa espaço com o conteúdo nesse
+          mesmo ponto; entre sm e md o conteúdo real fica estreito demais
+          pras colunas, e o valor quebra dentro do próprio número e vaza
+          (diagnosticado renderizando o shell completo, com sidebar, em
+          várias larguras — não só a grade isolada). md dá margem
+          confortável nos dois lados da transição: empilhado até 767px,
+          colunas largas a partir de 768px. Mesmo com md, o valor em destaque
+          (aqui e nas duas linhas acima) usa .valor-resumo/.valor-resumo-sm
+          (globals.css) — reduz de forma fluida com a largura real do card
+          (container query) até um piso legível, pra faixas em que mesmo a
+          coluna "larga" ainda aperta um valor longo; overflow-hidden como
+          rede de segurança final. */}
+      <div className="card-dominium card-resumo overflow-hidden grid grid-cols-1 divide-y divide-navy-700 p-4 md:grid-cols-2 md:divide-x md:divide-y-0">
+        <div className="pb-3 md:pb-0 md:pr-3">
+          <p className="text-[11px] text-cream-100/60">Reserva Pessoal</p>
+          <p className="tabular valor-resumo-sm font-semibold text-cream-100">
+            {formatarMoeda(dados.patrimonioPessoal)}
+          </p>
+        </div>
+        <div className="pt-3 md:pt-0 md:pl-3">
+          <p className="text-[11px] text-cream-100/60">Reserva Patrimonial</p>
+          <p className="tabular text-gold-gradient valor-resumo-sm font-semibold">
+            {formatarMoeda(dados.patrimonioPatrimonial)}
+          </p>
         </div>
       </div>
 
       {dados.janela !== "mes" && (
-        <div className="card-dominium grid grid-cols-2 divide-x divide-navy-700 p-4">
-          <div className="pr-3">
+        <div className="card-dominium card-resumo overflow-hidden grid grid-cols-1 divide-y divide-navy-700 p-4 md:grid-cols-2 md:divide-x md:divide-y-0">
+          <div className="pb-3 md:pb-0 md:pr-3">
             <p className="text-[11px] text-cream-100/60">Projeção Reserva Pessoal</p>
-            <p className="tabular text-lg font-semibold text-cream-100">
+            <p className="tabular valor-resumo-sm font-semibold text-cream-100">
               {formatarMoeda(dados.projecaoPatrimonioPessoal)}
             </p>
           </div>
-          <div className="pl-3">
+          <div className="pt-3 md:pt-0 md:pl-3">
             <p className="text-[11px] text-cream-100/60">Projeção Reserva Patrimonial</p>
-            <p className="tabular text-gold-gradient text-lg font-semibold">
+            <p className="tabular text-gold-gradient valor-resumo-sm font-semibold">
               {formatarMoeda(dados.projecaoPatrimonioPatrimonial)}
             </p>
           </div>
