@@ -34,6 +34,7 @@ export function CampoPrazoMeses({
             const digitado = e.target.value;
             onChange(digitado === "" ? "" : Math.max(1, Number(digitado)));
           }}
+          onFocus={(e) => e.target.select()}
         />
         <button
           type="button"

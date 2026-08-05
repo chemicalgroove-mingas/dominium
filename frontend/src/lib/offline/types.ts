@@ -14,6 +14,10 @@ export type PayloadCriarLancamento = {
   parcelas: number | null;
   mesInicio: string;
   observacoes: string | null;
+  // 'total': "valor" é o total da compra, o backend calcula a parcela.
+  // Omitido (ou 'parcela'): "valor" já é a parcela — comportamento de
+  // sempre, usado pelo Lançamento Rápido (nunca envia este campo).
+  modoValor?: "total" | "parcela";
 };
 
 export type PayloadCriarResgate = {

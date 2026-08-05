@@ -16,6 +16,7 @@ import { SeletorMesReferencia } from "@/components/dominium/SeletorMesReferencia
 import { formatarMoeda } from "@/lib/format";
 import { diferencaEmMeses, formatarMesInline, formatarMesLabel, somarMeses } from "@/lib/mes";
 import { centavosParaNumero, numeroParaCentavos } from "@/lib/moeda";
+import { calcularPlanoTemporarioPreview } from "@/lib/parcelamento";
 import { validarValorCentavos } from "@/lib/validacaoLancamento";
 import { PALETA_INSTANCIA, COR_SUGERIDA_POR_GRUPO } from "@/lib/cores";
 import { enqueuarCriacaoLancamento, listarNaoConcluidas } from "@/lib/offline/outbox";
@@ -65,8 +66,13 @@ const FORM_VAZIO = {
   valorCentavos: 0,
   tipo: "fixo" as TipoLancamento,
   mesInicio: "",
-  prazoMeses: "" as number | "",
+  prazoMeses: 1 as number | "",
   observacoes: "",
+  // 'total' (default): no momento do registro o usuário tem o total da
+  // compra na cabeça, não a parcela — capturar sem fricção é prioridade; a
+  // conversão pro valor de parcela é feita pelo backend (calcularPlanoTemporario).
+  // 'parcela': o valor digitado já é o da parcela, como sempre foi.
+  modoValor: "total" as "total" | "parcela",
 };
 
 type DadosGaveta = { lancamentos: LancamentoLocal[]; totalJanela: number; carregando: boolean };
@@ -233,17 +239,29 @@ export default function LancamentosPage() {
     setLancamentoEditando(lancamento);
     setForm({
       descricao: lancamento.descricao,
+      // O banco guarda o valor da parcela — abre em modo "Parcela" com esse
+      // valor. O usuário pode trocar pra "Total" e digitar o total exato da
+      // fatura, se preferir forçar o número a bater com o banco.
       valorCentavos: numeroParaCentavos(lancamento.valor),
       tipo: lancamento.tipo,
       mesInicio: lancamento.mesInicio,
-      prazoMeses: lancamento.tipo === "temporario" ? lancamento.parcelas ?? "" : "",
+      prazoMeses: lancamento.tipo === "temporario" ? lancamento.parcelas ?? 1 : 1,
       observacoes: lancamento.observacoes || "",
+      modoValor: "parcela",
     });
     setErroForm("");
     setEstado("foco");
   }
 
   const parcelasCalculadas = form.tipo === "temporario" && form.prazoMeses ? form.prazoMeses : null;
+
+  // Prévia local (mesma fórmula do backend, ver lib/parcelamento.ts) do
+  // resultado do toggle "Total": exibida antes de salvar, feedback
+  // imediato — o valor persistido sempre vem do backend.
+  const planoPreview =
+    form.tipo === "temporario" && form.modoValor === "total" && parcelasCalculadas && form.valorCentavos > 0
+      ? calcularPlanoTemporarioPreview(centavosParaNumero(form.valorCentavos), parcelasCalculadas)
+      : null;
 
   function voltarParaGeral() {
     setEstado("geral");
@@ -299,6 +317,9 @@ export default function LancamentosPage() {
       parcelas: form.tipo === "temporario" ? parcelasCalculadas : null,
       mesInicio: form.mesInicio,
       observacoes: form.observacoes || null,
+      // Só faz sentido pra temporário — o backend ignora fora desse caso,
+      // mas evita mandar o campo à toa pra um lançamento fixo.
+      modoValor: form.tipo === "temporario" ? form.modoValor : undefined,
     };
 
     // Edição continua online-only nesta fase (só a criação é offline-first).
@@ -481,12 +502,65 @@ export default function LancamentosPage() {
               onSubmit={(e) => registrarLancamento(e, false)}
               className="card-dominium flex flex-col gap-4 p-5"
             >
-              <CampoMoeda
-                label="Valor (parcela/mensalidade)"
-                valorCentavos={form.valorCentavos}
-                onChange={(valorCentavos) => setForm({ ...form, valorCentavos })}
-                required
-              />
+              {form.tipo === "temporario" ? (
+                <div>
+                  <div className="mb-1 flex items-center justify-between gap-2">
+                    <label className="text-sm text-cream-100/80">Valor (selecione total ou parcela)</label>
+                    <div className="flex shrink-0 gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setForm({ ...form, modoValor: "total" })}
+                        className={`rounded-lg border px-2.5 py-1 text-xs font-medium ${
+                          form.modoValor === "total"
+                            ? "border-gold-500 text-gold-300"
+                            : "border-navy-700 text-cream-100/60"
+                        }`}
+                      >
+                        Total
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setForm({ ...form, modoValor: "parcela" })}
+                        className={`rounded-lg border px-2.5 py-1 text-xs font-medium ${
+                          form.modoValor === "parcela"
+                            ? "border-gold-500 text-gold-300"
+                            : "border-navy-700 text-cream-100/60"
+                        }`}
+                      >
+                        Parcela
+                      </button>
+                    </div>
+                  </div>
+                  <CampoMoeda
+                    valorCentavos={form.valorCentavos}
+                    onChange={(valorCentavos) => setForm({ ...form, valorCentavos })}
+                    required
+                  />
+                </div>
+              ) : (
+                <CampoMoeda
+                  label="Valor (parcela/mensalidade)"
+                  valorCentavos={form.valorCentavos}
+                  onChange={(valorCentavos) => setForm({ ...form, valorCentavos })}
+                  required
+                />
+              )}
+
+              {planoPreview && (
+                <p className="-mt-2 text-xs text-cream-100/50">
+                  {formatarMoeda(centavosParaNumero(form.valorCentavos))} em {planoPreview.parcelas}x → parcela{" "}
+                  {formatarMoeda(planoPreview.valorParcela)}
+                  {planoPreview.valorUltimaParcela != null &&
+                    `, última ${formatarMoeda(planoPreview.valorUltimaParcela)}`}
+                </p>
+              )}
+
+              {form.tipo === "temporario" && form.modoValor === "total" && (
+                <p className="-mt-2 text-xs text-cream-100/40">
+                  Alguns bancos distribuem os centavos de forma diferente. Se o valor da parcela no seu app bancário
+                  estiver um pouco diferente, toque em Parcela e insira o valor exato.
+                </p>
+              )}
 
               <div className="grid grid-cols-2 gap-2">
                 <button
@@ -502,7 +576,7 @@ export default function LancamentosPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setForm({ ...form, tipo: "fixo" })}
+                  onClick={() => setForm({ ...form, tipo: "fixo", modoValor: "parcela" })}
                   className={`min-h-[44px] rounded-xl border text-sm ${
                     form.tipo === "fixo" ? "border-gold-500 text-gold-300" : "border-navy-700 text-cream-100/60"
                   }`}
@@ -809,10 +883,21 @@ function GavetaCard({
                 {l.tipo === "fixo" ? (
                   <p className="tabular text-xs text-cream-100/60">{formatarMoeda(l.valor)}/mês · FIXO</p>
                 ) : (
-                  <p className="tabular text-xs text-cream-100/60">
-                    {formatarMoeda(l.valorParcela ?? l.valor)}/parcela · {l.parcelaAtual}/{l.parcelas} · resta{" "}
-                    {formatarMoeda(l.totalRestante || 0)}
-                  </p>
+                  <>
+                    <p className="tabular text-xs text-cream-100/60">
+                      {formatarMoeda(l.valorParcela ?? l.valor)}/parcela · {l.parcelaAtual}/{l.parcelas} · resta{" "}
+                      {formatarMoeda(l.totalRestante || 0)}
+                    </p>
+                    {/* Total da compra: (parcelas-1)*valor + (valorUltimaParcela ?? valor) —
+                        mesma álgebra de projetarLancamentoNaJanela aplicada ao intervalo
+                        completo, não a uma janela. valorUltimaParcela null (lançamentos
+                        antigos, ou parcelas divididas sem resíduo) cai em valor pra todas. */}
+                    {l.parcelas != null && (
+                      <p className="tabular text-[11px] text-cream-100/40">
+                        Total da compra: {formatarMoeda((l.parcelas - 1) * l.valor + (l.valorUltimaParcela ?? l.valor))}
+                      </p>
+                    )}
+                  </>
                 )}
               </div>
               {sincronizado && (
