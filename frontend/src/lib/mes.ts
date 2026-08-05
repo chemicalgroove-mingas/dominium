@@ -45,3 +45,14 @@ export function diferencaEmMeses(chaveA: string, chaveB: string) {
   const [anoB, mesB] = chaveB.split("-").map(Number);
   return (anoB * 12 + (mesB - 1)) - (anoA * 12 + (mesA - 1));
 }
+
+// Formato compacto tipo fatura de cartão ("maio/2026"), usado como orientação
+// de mês ao lado de um título — diferente de formatarMesLabel ("Maio de 2026").
+export function formatarMesInline(chave: string) {
+  const [ano, mes] = chave.split("-");
+  const nomes = [
+    "janeiro", "fevereiro", "março", "abril", "maio", "junho",
+    "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
+  ];
+  return `${nomes[parseInt(mes, 10) - 1]}/${ano}`;
+}

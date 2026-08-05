@@ -14,7 +14,7 @@ import { CampoMes } from "@/components/dominium/CampoMes";
 import { CampoPrazoMeses } from "@/components/dominium/CampoPrazoMeses";
 import { SeletorMesReferencia } from "@/components/dominium/SeletorMesReferencia";
 import { formatarMoeda } from "@/lib/format";
-import { formatarMesLabel, somarMeses } from "@/lib/mes";
+import { diferencaEmMeses, formatarMesInline, formatarMesLabel, somarMeses } from "@/lib/mes";
 import { centavosParaNumero, numeroParaCentavos } from "@/lib/moeda";
 import { validarValorCentavos } from "@/lib/validacaoLancamento";
 import { PALETA_INSTANCIA, COR_SUGERIDA_POR_GRUPO } from "@/lib/cores";
@@ -25,6 +25,40 @@ import { useOutboxPendentes } from "@/lib/offline/useOutboxPendentes";
 import { lerSnapshot, salvarSnapshot } from "@/lib/offline/snapshots";
 import type { LancamentoLocal } from "@/lib/offline/types";
 import type { DashboardData, Grupo, Instancia, Lancamento, TipoLancamento } from "@/lib/types";
+
+// Espelha o mesmo criterio de competencia do backend
+// (intervaloEfetivoNaJanela/competenciaDoLancamento em
+// backend/src/utils/projecao.js e backend/src/routes/lancamentos.js): o
+// lancamento tem efeito no mes-alvo se mesInicio <= mesAlvo <= mesFim (fixo
+// nao tem mesFim, vai ate o infinito). Usado so pra decidir se o seletor de
+// mes precisa pular apos criar um lancamento — nunca pra calcular valores.
+function produzParcelaNoMes(mesInicio: string, tipo: TipoLancamento, parcelas: number | null, mesAlvo: string) {
+  if (diferencaEmMeses(mesInicio, mesAlvo) < 0) return false;
+  if (tipo === "fixo") return true;
+  const mesFim = somarMeses(mesInicio, (parcelas || 1) - 1);
+  return diferencaEmMeses(mesAlvo, mesFim) >= 0;
+}
+
+// "Sem descrição. Lançado em dd/mm/aaaa às hh:mm" — usada quando o usuário
+// deixa a descrição em branco, no instante do save (não no momento em que o
+// formulário foi aberto).
+function descricaoAutomatica() {
+  const agora = new Date();
+  const dd = String(agora.getDate()).padStart(2, "0");
+  const mm = String(agora.getMonth() + 1).padStart(2, "0");
+  const hh = String(agora.getHours()).padStart(2, "0");
+  const min = String(agora.getMinutes()).padStart(2, "0");
+  return `Sem descrição. Lançado em ${dd}/${mm}/${agora.getFullYear()} às ${hh}:${min}`;
+}
+
+// 99% dos gastos são compras pontuais (eventualmente parceladas); receitas
+// tendem a ser recorrentes (salário, aluguel recebido) — o toggle já abre no
+// que é mais comum pra cada grupo.
+const TIPO_PADRAO_POR_GRUPO: Record<Grupo, TipoLancamento> = {
+  gasto: "temporario",
+  receita: "fixo",
+  investimento: "fixo",
+};
 
 const FORM_VAZIO = {
   descricao: "",
@@ -52,7 +86,7 @@ const LABEL_GRUPO_BOTAO: Record<Grupo, string> = {
 export default function LancamentosPage() {
   const { usuario } = useAuth();
   const { instancias, recarregar } = useInstancias();
-  const { janela, mesReferencia } = useRecorte();
+  const { janela, mesReferencia, setMesReferencia } = useRecorte();
   const pendentesUsuario = useOutboxPendentes(usuario?.id);
   const pendentesAnterioresRef = useRef(0);
 
@@ -183,10 +217,13 @@ export default function LancamentosPage() {
     pendentesAnterioresRef.current = pendentesUsuario.length;
   }, [pendentesUsuario.length, carregarTodasGavetas, carregarResumo]);
 
+  // Entrada no ambiente prático (destino do botão "Lançar gasto/receita" de
+  // qualquer instância) e também usada pela grade interna pra trocar de
+  // instância sem sair da tela.
   function abrirFoco(instancia: Instancia) {
     setInstanciaFoco(instancia);
     setLancamentoEditando(null);
-    setForm({ ...FORM_VAZIO, mesInicio: mesReferencia });
+    setForm({ ...FORM_VAZIO, tipo: TIPO_PADRAO_POR_GRUPO[grupo], mesInicio: mesReferencia });
     setErroForm("");
     setEstado("foco");
   }
@@ -238,7 +275,7 @@ export default function LancamentosPage() {
     await recarregar();
   }
 
-  async function registrarLancamento(e: React.FormEvent) {
+  async function registrarLancamento(e: React.FormEvent, manterInstancia = false) {
     e.preventDefault();
     if (!instanciaFoco) return;
     setErroForm("");
@@ -256,7 +293,7 @@ export default function LancamentosPage() {
 
     const payload = {
       instanciaId: instanciaFoco.id,
-      descricao: form.descricao,
+      descricao: form.descricao.trim() || descricaoAutomatica(),
       valor: valorNumerico,
       tipo: form.tipo,
       parcelas: form.tipo === "temporario" ? parcelasCalculadas : null,
@@ -269,9 +306,9 @@ export default function LancamentosPage() {
       setSalvando(true);
       try {
         await api.put(`/api/lancamentos/${lancamentoEditando.id}/completo`, payload);
-        setForm(FORM_VAZIO);
+        setForm({ ...FORM_VAZIO, tipo: TIPO_PADRAO_POR_GRUPO[grupo], mesInicio: mesReferencia });
+        setLancamentoEditando(null);
         await Promise.all([carregarTodasGavetas(), carregarResumo()]);
-        voltarParaGeral();
       } catch (err) {
         setErroForm(err instanceof ApiError ? err.message : "Nao foi possivel salvar o lancamento.");
       } finally {
@@ -282,19 +319,39 @@ export default function LancamentosPage() {
 
     if (!usuario) return;
 
+    // Regra do seletor pós-lançamento: se o mês selecionado já enxerga o
+    // lançamento recém-criado (tem parcela nele), mantém onde está; senão
+    // pula pro mês de início do lançamento, pra ele ficar sempre visível no
+    // demonstrativo.
+    const mesAlvo = produzParcelaNoMes(form.mesInicio, form.tipo, parcelasCalculadas, mesReferencia)
+      ? mesReferencia
+      : form.mesInicio;
+
     // Criação: otimista. Entra na tela na hora, fica marcada como pendente,
     // e sincroniza sozinha (agora, se der, ou quando a rede voltar).
     const operacao = await enqueuarCriacaoLancamento(usuario.id, payload);
-    const otimista = construirLancamentoOtimista(operacao, mesReferencia);
-    setGavetas((prev) => {
-      const atual = prev[instanciaFoco.id] || { lancamentos: [], totalJanela: 0, carregando: false };
-      return {
-        ...prev,
-        [instanciaFoco.id]: { ...atual, lancamentos: [otimista, ...atual.lancamentos] },
-      };
-    });
-    setForm(FORM_VAZIO);
-    voltarParaGeral();
+    if (mesAlvo === mesReferencia) {
+      const otimista = construirLancamentoOtimista(operacao, mesAlvo);
+      setGavetas((prev) => {
+        const atual = prev[instanciaFoco.id] || { lancamentos: [], totalJanela: 0, carregando: false };
+        return {
+          ...prev,
+          [instanciaFoco.id]: { ...atual, lancamentos: [otimista, ...atual.lancamentos] },
+        };
+      });
+    } else {
+      // Ao mudar mesReferencia, o efeito de carregamento de gavetas já
+      // refaz a busca (servidor + otimistas) na janela nova — não precisa
+      // remendar o estado local aqui.
+      setMesReferencia(mesAlvo);
+    }
+
+    if (manterInstancia) {
+      setForm((f) => ({ ...f, descricao: "", valorCentavos: 0 }));
+    } else {
+      setForm({ ...FORM_VAZIO, tipo: TIPO_PADRAO_POR_GRUPO[grupo], mesInicio: mesAlvo });
+    }
+    setErroForm("");
     tentarSincronizar(usuario.id);
   }
 
@@ -397,19 +454,33 @@ export default function LancamentosPage() {
             <ArrowLeft size={16} /> Voltar
           </button>
 
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:items-start">
-            <form onSubmit={registrarLancamento} className="card-dominium flex flex-col gap-4 p-5">
-              <div>
-                <label className="mb-1 block text-sm text-cream-100/80">Descrição</label>
-                <input
-                  className="input-dominium"
-                  value={form.descricao}
-                  onChange={(e) => setForm({ ...form, descricao: e.target.value })}
-                  required
-                  autoFocus
-                />
-              </div>
+          {/* Grade rápida de instâncias (mesmo padrão do Lançamento Rápido do
+              Dashboard): permite trocar de instância sem voltar pra visão
+              geral, sem duplicar a listagem completa de cada uma. */}
+          <div className="mb-4">
+            <p className="mb-2 text-sm text-cream-100/70">Instância</p>
+            <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+              {instanciasDoGrupo.map((i) => (
+                <button
+                  key={i.id}
+                  type="button"
+                  onClick={() => abrirFoco(i)}
+                  className={`flex flex-col items-center gap-1 rounded-xl border p-2.5 text-center ${
+                    instanciaFoco.id === i.id ? "border-gold-500 bg-gold-500/10" : "border-navy-700"
+                  }`}
+                >
+                  <span className="h-3 w-3 rounded-full" style={{ background: i.cor }} />
+                  <span className="w-full truncate text-[11px] text-cream-100/80">{i.nome}</span>
+                </button>
+              ))}
+            </div>
+          </div>
 
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:items-start">
+            <form
+              onSubmit={(e) => registrarLancamento(e, false)}
+              className="card-dominium flex flex-col gap-4 p-5"
+            >
               <CampoMoeda
                 label="Valor (parcela/mensalidade)"
                 valorCentavos={form.valorCentavos}
@@ -420,15 +491,6 @@ export default function LancamentosPage() {
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
-                  onClick={() => setForm({ ...form, tipo: "fixo" })}
-                  className={`min-h-[44px] rounded-xl border text-sm ${
-                    form.tipo === "fixo" ? "border-gold-500 text-gold-300" : "border-navy-700 text-cream-100/60"
-                  }`}
-                >
-                  Fixo
-                </button>
-                <button
-                  type="button"
                   onClick={() => setForm({ ...form, tipo: "temporario" })}
                   className={`min-h-[44px] rounded-xl border text-sm ${
                     form.tipo === "temporario"
@@ -437,6 +499,15 @@ export default function LancamentosPage() {
                   }`}
                 >
                   Temporário
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setForm({ ...form, tipo: "fixo" })}
+                  className={`min-h-[44px] rounded-xl border text-sm ${
+                    form.tipo === "fixo" ? "border-gold-500 text-gold-300" : "border-navy-700 text-cream-100/60"
+                  }`}
+                >
+                  Fixo
                 </button>
               </div>
 
@@ -465,25 +536,36 @@ export default function LancamentosPage() {
               )}
 
               <div>
-                <label className="mb-1 block text-sm text-cream-100/80">Observações (opcional)</label>
+                <label className="mb-1 block text-sm text-cream-100/80">Descrição (opcional)</label>
                 <input
                   className="input-dominium"
-                  value={form.observacoes}
-                  onChange={(e) => setForm({ ...form, observacoes: e.target.value })}
+                  value={form.descricao}
+                  onChange={(e) => setForm({ ...form, descricao: e.target.value })}
+                  placeholder="Sem descrição."
                 />
               </div>
 
               {erroForm && <p className="text-sm text-danger">{erroForm}</p>}
 
-              <button type="submit" className="btn-gold" disabled={salvando}>
-                {salvando
-                  ? lancamentoEditando
-                    ? "Salvando alteração..."
-                    : "Registrando..."
-                  : lancamentoEditando
-                    ? "Alterar lançamento"
-                    : "Registrar lançamento"}
-              </button>
+              {lancamentoEditando ? (
+                <button type="submit" className="btn-gold" disabled={salvando}>
+                  {salvando ? "Salvando alteração..." : "Alterar lançamento"}
+                </button>
+              ) : (
+                <div className="grid grid-cols-2 gap-2">
+                  <button type="submit" className="btn-gold min-h-[44px] text-sm" disabled={salvando}>
+                    {salvando ? "Salvando..." : "Salvar registro"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => registrarLancamento(e, true)}
+                    disabled={salvando}
+                    className="min-h-[44px] rounded-xl border border-gold-500/60 text-sm text-gold-300"
+                  >
+                    Salvar e lançar outro
+                  </button>
+                </div>
+              )}
             </form>
 
             <GavetaCard
@@ -653,6 +735,9 @@ function GavetaCard({
         <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: instancia.cor }} />
         <p className="min-w-0 flex-1 truncate text-sm font-medium" style={{ color: instancia.cor }}>
           {instancia.nome}
+          {mesReferencia && (
+            <span className="font-normal text-cream-100/50"> ({formatarMesInline(mesReferencia)})</span>
+          )}
         </p>
         <button
           onClick={onEditarInstancia}
