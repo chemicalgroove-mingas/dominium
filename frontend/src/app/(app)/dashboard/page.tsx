@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Area, AreaChart, Bar, BarChart, ResponsiveContainer, Tooltip, XAxis } from "recharts";
 import { FileText, Plus } from "lucide-react";
 import { API_URL, api } from "@/lib/api";
-import { formatarDataHora, formatarMoeda } from "@/lib/format";
+import { corComprometimento, corPorSinal, formatarDataHora, formatarMoeda } from "@/lib/format";
 import { formatarMesCurto, formatarMesLabel } from "@/lib/mes";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRecorte } from "@/contexts/RecorteContext";
@@ -167,42 +167,53 @@ export default function DashboardPage() {
         </div>
         <div className="card-dominium p-4">
           <p className="text-xs text-cream-100/60">Saldo no período</p>
-          <p className="tabular text-gold-gradient text-2xl font-semibold">{formatarMoeda(dados.saldoPeriodo)}</p>
+          <p className={`tabular text-2xl font-semibold ${corPorSinal(dados.saldoPeriodo)}`}>
+            {formatarMoeda(dados.saldoPeriodo)}
+          </p>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="card-dominium p-4">
           <p className="text-xs text-cream-100/60">Sobra do mês</p>
-          <p className="tabular text-2xl font-semibold text-success">{formatarMoeda(dados.sobraLivreMes)}</p>
+          <p className={`tabular text-2xl font-semibold ${corPorSinal(dados.sobraLivreMes)}`}>
+            {formatarMoeda(dados.sobraLivreMes)}
+          </p>
         </div>
         <div className="card-dominium p-4">
           <p className="text-xs text-cream-100/60">Comprometimento</p>
-          <p className="tabular text-2xl font-semibold text-cream-100">{dados.comprometimento.toFixed(0)}%</p>
+          <p className={`tabular text-2xl font-semibold ${corComprometimento(dados.comprometimento)}`}>
+            {dados.comprometimento.toFixed(0)}%
+          </p>
         </div>
-        <div className="card-dominium grid grid-cols-2 divide-x divide-navy-700 p-4">
-          <div className="pr-3">
-            <p className="text-[11px] text-cream-100/60">Reserva Pessoal</p>
-            <p className="tabular text-lg font-semibold text-cream-100">{formatarMoeda(dados.patrimonioPessoal)}</p>
-          </div>
-          <div className="pl-3">
-            <p className="text-[11px] text-cream-100/60">Reserva Patrimonial</p>
-            <p className="tabular text-gold-gradient text-lg font-semibold">
-              {formatarMoeda(dados.patrimonioPatrimonial)}
-            </p>
-          </div>
+      </div>
+
+      {/* Cards combinados (Reserva/Projeção): dividem em duas colunas só a
+          partir de sm — mais estreito que isso, cada valor fica sem espaço
+          (a divisão fixa em 2 colunas fazia o texto vazar/cortar em telas
+          intermediárias, ver diagnóstico da Fase 2). */}
+      <div className="card-dominium grid grid-cols-1 divide-y divide-navy-700 p-4 sm:grid-cols-2 sm:divide-x sm:divide-y-0">
+        <div className="pb-3 sm:pb-0 sm:pr-3">
+          <p className="text-[11px] text-cream-100/60">Reserva Pessoal</p>
+          <p className="tabular text-lg font-semibold text-cream-100">{formatarMoeda(dados.patrimonioPessoal)}</p>
+        </div>
+        <div className="pt-3 sm:pt-0 sm:pl-3">
+          <p className="text-[11px] text-cream-100/60">Reserva Patrimonial</p>
+          <p className="tabular text-gold-gradient text-lg font-semibold">
+            {formatarMoeda(dados.patrimonioPatrimonial)}
+          </p>
         </div>
       </div>
 
       {dados.janela !== "mes" && (
-        <div className="card-dominium grid grid-cols-2 divide-x divide-navy-700 p-4">
-          <div className="pr-3">
+        <div className="card-dominium grid grid-cols-1 divide-y divide-navy-700 p-4 sm:grid-cols-2 sm:divide-x sm:divide-y-0">
+          <div className="pb-3 sm:pb-0 sm:pr-3">
             <p className="text-[11px] text-cream-100/60">Projeção Reserva Pessoal</p>
             <p className="tabular text-lg font-semibold text-cream-100">
               {formatarMoeda(dados.projecaoPatrimonioPessoal)}
             </p>
           </div>
-          <div className="pl-3">
+          <div className="pt-3 sm:pt-0 sm:pl-3">
             <p className="text-[11px] text-cream-100/60">Projeção Reserva Patrimonial</p>
             <p className="tabular text-gold-gradient text-lg font-semibold">
               {formatarMoeda(dados.projecaoPatrimonioPatrimonial)}
