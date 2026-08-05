@@ -536,7 +536,9 @@ export default function LancamentosPage() {
               )}
 
               <div>
-                <label className="mb-1 block text-sm text-cream-100/80">Descrição do Gasto</label>
+                <label className="mb-1 block text-sm text-cream-100/80">
+                  {grupo === "gasto" ? "Descrição do Gasto" : "Descrição da Receita"}
+                </label>
                 <input
                   className="input-dominium"
                   value={form.descricao}
