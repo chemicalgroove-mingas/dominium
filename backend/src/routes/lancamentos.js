@@ -5,6 +5,7 @@ const prisma = require('../lib/prisma');
 const { autenticar, exigirRole } = require('../middleware/auth');
 const { somarMeses, mesAtual, parseMes } = require('../utils/mes');
 const { janelaValida, limitesJanela, projetarLancamentoNaJanela, parcelasNaJanela } = require('../utils/projecao');
+const { calcularPlanoTemporario } = require('../utils/parcelamento');
 const { asyncHandler } = require('../utils/asyncHandler');
 
 const router = express.Router();
@@ -21,7 +22,27 @@ const baseSchema = z.object({
   parcelas: z.number().int().min(1).nullable().optional(),
   mesInicio: mesSchema,
   observacoes: z.string().trim().optional().nullable(),
+  // 'total': "valor" e' o total da compra — o backend divide pelo prazo e
+  // calcula a parcela (residuo na ultima via calcularPlanoTemporario).
+  // 'parcela' (ou omitido, default): "valor" ja e' o valor da parcela, como
+  // sempre foi — preserva 100% o comportamento anterior (Lancamento Rapido
+  // do Dashboard nunca envia esse campo). So se aplica a tipo=temporario.
+  modoValor: z.enum(['total', 'parcela']).optional(),
 });
+
+// Resolve o valor de parcela e o residuo (valorUltimaParcela) a persistir a
+// partir do payload validado — unico ponto de decisao entre "valor ja e' a
+// parcela" e "valor e' o total, calcular a parcela" (calcularPlanoTemporario,
+// mesma funcao usada em Investimentos). Nunca persiste o total digitado —
+// so a parcela + o residuo, formato que Dashboard/Relatorio/competencia ja
+// consomem sem mudanca nenhuma.
+function resolverValorEResiduo(dados) {
+  if (dados.tipo === 'temporario' && dados.modoValor === 'total') {
+    const plano = calcularPlanoTemporario({ valorMeta: dados.valor, prazoMeses: dados.parcelas });
+    return { valor: plano.valorParcela, valorUltimaParcela: plano.valorUltimaParcela };
+  }
+  return { valor: dados.valor, valorUltimaParcela: null };
+}
 
 function validarParcelasPorTipo(dados) {
   if (dados.tipo === 'temporario') {
@@ -138,11 +159,14 @@ router.post('/', asyncHandler(async (req, res) => {
   const mesFim =
     parsed.data.tipo === 'temporario' ? somarMeses(parsed.data.mesInicio, parsed.data.parcelas - 1) : null;
 
+  const { valor, valorUltimaParcela } = resolverValorEResiduo(parsed.data);
+
   const dadosCriacao = {
     usuarioId: req.usuario.id,
     instanciaId: parsed.data.instanciaId,
     descricao: parsed.data.descricao,
-    valor: parsed.data.valor,
+    valor,
+    valorUltimaParcela,
     tipo: parsed.data.tipo,
     parcelas: parsed.data.tipo === 'temporario' ? parsed.data.parcelas : null,
     mesInicio: parsed.data.mesInicio,
@@ -217,11 +241,17 @@ router.put('/:id/completo', asyncHandler(async (req, res) => {
   const mesFim =
     parsed.data.tipo === 'temporario' ? somarMeses(parsed.data.mesInicio, parsed.data.parcelas - 1) : null;
 
+  const { valor, valorUltimaParcela } = resolverValorEResiduo(parsed.data);
+
   const atualizado = await prisma.lancamento.update({
     where: { id: lancamento.id },
     data: {
       descricao: parsed.data.descricao,
-      valor: parsed.data.valor,
+      valor,
+      // Sempre reescreve valorUltimaParcela (null no modo parcela) — senão um
+      // lancamento editado de volta pra "parcela" ficaria com o residuo da
+      // conversao anterior preso no banco, incoerente com o novo valor.
+      valorUltimaParcela,
       tipo: parsed.data.tipo,
       parcelas: parsed.data.tipo === 'temporario' ? parsed.data.parcelas : null,
       mesInicio: parsed.data.mesInicio,

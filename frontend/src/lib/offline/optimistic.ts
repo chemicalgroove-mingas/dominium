@@ -1,4 +1,5 @@
 import { diferencaEmMeses, somarMeses } from "@/lib/mes";
+import { calcularPlanoTemporarioPreview } from "@/lib/parcelamento";
 import type {
   AporteLocal,
   LancamentoLocal,
@@ -20,6 +21,17 @@ export function construirLancamentoOtimista(op: OperacaoOutbox, mesReferencia?: 
   const parcelas = temporario ? payload.parcelas : null;
   const mesFim = temporario && parcelas ? somarMeses(payload.mesInicio, parcelas - 1) : null;
 
+  // payload.valor é o total quando modoValor === "total" — mesma conversão
+  // que o backend vai aplicar (resolverValorEResiduo em lancamentos.js) só
+  // pra a linha otimista já nascer com o valor de parcela certo, em vez do
+  // total, até a resposta do servidor confirmar.
+  const plano =
+    temporario && parcelas && payload.modoValor === "total"
+      ? calcularPlanoTemporarioPreview(payload.valor, parcelas)
+      : null;
+  const valorParcela = plano ? plano.valorParcela : payload.valor;
+  const valorUltimaParcela = plano ? plano.valorUltimaParcela : null;
+
   let parcelaAtual: number | null = null;
   let restantes: number | null = null;
   let totalRestante: number | null = null;
@@ -29,7 +41,7 @@ export function construirLancamentoOtimista(op: OperacaoOutbox, mesReferencia?: 
     if (indice >= 1 && indice <= parcelas) {
       parcelaAtual = indice;
       restantes = parcelas - indice;
-      totalRestante = restantes * payload.valor;
+      totalRestante = restantes * valorParcela;
     }
   }
 
@@ -38,13 +50,13 @@ export function construirLancamentoOtimista(op: OperacaoOutbox, mesReferencia?: 
     usuarioId: op.usuarioId,
     instanciaId: payload.instanciaId,
     descricao: payload.descricao,
-    valor: payload.valor,
+    valor: valorParcela,
     tipo: payload.tipo,
     parcelas,
     mesInicio: payload.mesInicio,
     mesFim,
     valorMeta: null,
-    valorUltimaParcela: null,
+    valorUltimaParcela,
     valorAbatido: 0,
     valorRendimento: 0,
     valorBaseAcumulado: 0,
@@ -52,7 +64,7 @@ export function construirLancamentoOtimista(op: OperacaoOutbox, mesReferencia?: 
     observacoes: payload.observacoes,
     criadoEm: new Date(op.criadoEm).toISOString(),
     pagas: temporario ? 0 : null,
-    valorParcela: payload.valor,
+    valorParcela,
     parcelaAtual,
     restantes,
     totalRestante,

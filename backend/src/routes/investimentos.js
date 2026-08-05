@@ -13,12 +13,12 @@ const {
   parcelasRestantesComValor,
   ultimaParcelaEfetiva,
 } = require('../utils/patrimonio');
+const { EPS, calcularPlanoTemporario } = require('../utils/parcelamento');
 
 const router = express.Router();
 router.use(autenticar, exigirRole('USER'));
 
 const SUBGRUPOS = ['pessoal', 'patrimonial'];
-const EPS = 0.005;
 
 async function montarConta(instancia) {
   const [aportes, resgates] = await Promise.all([
@@ -360,17 +360,6 @@ function validarProjeto(dados) {
   const temPrazo = Boolean(dados.prazoMeses);
   if (temValor === temPrazo) return 'Informe o valor da parcela OU o prazo em meses (nao os dois).';
   return null;
-}
-
-// Calcula o plano de parcelas de um projeto temporario a partir da meta e de um dos
-// dois parametros (valor da parcela ou prazo). A ultima parcela absorve o resto da
-// divisao, podendo ficar menor que as demais.
-function calcularPlanoTemporario({ valorMeta, valor, prazoMeses }) {
-  const parcelas = valor ? Math.ceil(valorMeta / valor) : prazoMeses;
-  const valorParcela = valor || Math.floor((valorMeta / parcelas) * 100) / 100;
-  const ultimaBruta = Math.round((valorMeta - valorParcela * (parcelas - 1)) * 100) / 100;
-  const valorUltimaParcela = Math.abs(ultimaBruta - valorParcela) < EPS ? null : ultimaBruta;
-  return { parcelas, valorParcela, valorUltimaParcela };
 }
 
 function montarDadosAporte(dados) {
