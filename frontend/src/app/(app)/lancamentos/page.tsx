@@ -449,9 +449,9 @@ export default function LancamentosPage() {
         <div>
           <button
             onClick={voltarParaGeral}
-            className="mb-4 flex items-center gap-1 text-sm text-cream-100/70 hover:text-gold-300"
+            className="mb-4 inline-flex items-center gap-1.5 rounded-xl border border-cream-100/25 bg-navy-800/40 px-3 py-2 text-sm font-medium text-cream-100/90 hover:border-cream-100/40 hover:text-cream-100"
           >
-            <ArrowLeft size={16} /> Voltar
+            <ArrowLeft size={18} /> Voltar
           </button>
 
           {/* Grade rápida de instâncias (mesmo padrão do Lançamento Rápido do
@@ -536,7 +536,7 @@ export default function LancamentosPage() {
               )}
 
               <div>
-                <label className="mb-1 block text-sm text-cream-100/80">Descrição (opcional)</label>
+                <label className="mb-1 block text-sm text-cream-100/80">Descrição do Gasto</label>
                 <input
                   className="input-dominium"
                   value={form.descricao}

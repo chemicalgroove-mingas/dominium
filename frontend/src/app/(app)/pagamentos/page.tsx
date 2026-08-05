@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, Check, Undo2 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { formatarDataHora, formatarMoeda } from "@/lib/format";
-import { formatarMesLabel, mesAtual, somarMeses } from "@/lib/mes";
+import { formatarMesInline, formatarMesLabel, mesAtual, somarMeses } from "@/lib/mes";
 import { centavosParaNumero, numeroParaCentavos } from "@/lib/moeda";
 import { CampoMoeda } from "@/components/dominium/CampoMoeda";
 import { useAuth } from "@/contexts/AuthContext";
@@ -199,7 +199,10 @@ export default function PagamentosPage() {
               <div className="mb-3 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <span className="h-3 w-3 rounded-full" style={{ background: instancia.cor }} />
-                  <span className="text-sm font-medium text-cream-100">{instancia.nome}</span>
+                  <span className="text-sm font-medium text-cream-100">
+                    {instancia.nome}
+                    <span className="font-normal text-cream-100/50"> ({formatarMesInline(mesReferencia)})</span>
+                  </span>
                 </div>
                 <span className="tabular text-sm font-semibold text-cream-100">
                   {formatarMoeda(instancia.totalAberto)}
