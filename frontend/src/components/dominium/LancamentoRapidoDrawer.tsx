@@ -169,25 +169,6 @@ export function LancamentoRapidoDrawer({
             )}
           </div>
 
-          <div className="mb-4">
-            <label className="mb-1 block text-sm text-cream-100/80">Descrição</label>
-            <div className="relative">
-              <input
-                className="input-dominium pr-24"
-                value={descricao}
-                onChange={(e) => setDescricao(e.target.value)}
-                placeholder="Ex.: Supermercado, mensalidade, compra notebook..."
-              />
-              <button
-                type="button"
-                onClick={() => setDescricao(inserirDataDeHoje(descricao))}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-cream-100/50 hover:text-cream-100/80"
-              >
-                [Inserir Data]
-              </button>
-            </div>
-          </div>
-
           <div className="mb-1 flex items-center justify-between gap-2">
             <label className="text-sm text-cream-100/80">Valor</label>
             <div className="flex shrink-0 gap-1.5">
@@ -211,17 +192,36 @@ export function LancamentoRapidoDrawer({
               </button>
             </div>
           </div>
-
-          <div className="mb-1 grid grid-cols-2 gap-3">
-            <CampoMoeda valorCentavos={valorCentavos} onChange={setValorCentavos} />
-            <CampoPrazoMeses label="Parcelas" value={prazoMeses} onChange={setPrazoMeses} />
-          </div>
+          <CampoMoeda valorCentavos={valorCentavos} onChange={setValorCentavos} />
 
           {planoPreview && (
-            <p className="mb-2 text-[11px] text-cream-100/40">
+            <p className="mt-1 text-[11px] text-cream-100/40">
               Centavos podem variar do seu banco — toque em Parcela para o valor exato.
             </p>
           )}
+
+          <div className="mt-3 mb-4">
+            <CampoPrazoMeses label="Parcelas" value={prazoMeses} onChange={setPrazoMeses} />
+          </div>
+
+          <div className="mb-2">
+            <label className="mb-1 block text-sm text-cream-100/80">Descrição</label>
+            <div className="relative">
+              <input
+                className="input-dominium pr-24"
+                value={descricao}
+                onChange={(e) => setDescricao(e.target.value)}
+                placeholder="Ex.: Supermercado, mensalidade, compra notebook..."
+              />
+              <button
+                type="button"
+                onClick={() => setDescricao(inserirDataDeHoje(descricao))}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-cream-100/50 hover:text-cream-100/80"
+              >
+                [Inserir Data]
+              </button>
+            </div>
+          </div>
 
           {erro && <p className="mt-2 text-sm text-danger">{erro}</p>}
         </div>
