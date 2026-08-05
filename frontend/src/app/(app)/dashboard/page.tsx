@@ -250,6 +250,7 @@ export default function DashboardPage() {
           <BarChart data={dados.evolucaoMensal}>
             <XAxis dataKey="mes" tickFormatter={formatarMesCurto} stroke="#8496AC" fontSize={12} />
             <Tooltip
+              cursor={false}
               formatter={(value) => formatarMoeda(Number(value))}
               labelFormatter={(v) => formatarMesCurto(String(v))}
               contentStyle={{ background: "#16283F", border: "1px solid #1F3552", borderRadius: 8 }}
