@@ -156,7 +156,7 @@ export default function DashboardPage() {
         <Plus size={20} /> Lançamento rápido
       </button>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
         <div className="card-dominium p-4">
           <p className="text-xs text-cream-100/60">Receita no período</p>
           <p className="tabular text-2xl font-semibold text-success">{formatarMoeda(dados.receitaPeriodo)}</p>
@@ -173,7 +173,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         <div className="card-dominium p-4">
           <p className="text-xs text-cream-100/60">Sobra do mês</p>
           <p className={`tabular text-2xl font-semibold ${corPorSinal(dados.sobraLivreMes)}`}>
@@ -189,15 +189,21 @@ export default function DashboardPage() {
       </div>
 
       {/* Cards combinados (Reserva/Projeção): dividem em duas colunas só a
-          partir de sm — mais estreito que isso, cada valor fica sem espaço
-          (a divisão fixa em 2 colunas fazia o texto vazar/cortar em telas
-          intermediárias, ver diagnóstico da Fase 2). */}
-      <div className="card-dominium grid grid-cols-1 divide-y divide-navy-700 p-4 sm:grid-cols-2 sm:divide-x sm:divide-y-0">
-        <div className="pb-3 sm:pb-0 sm:pr-3">
+          partir de md. O breakpoint dos cards de resumo (aqui e nas duas
+          linhas acima) é md, não sm — a Sidebar (w-60, Nav.tsx) aparece
+          exatamente em sm (640px) e disputa espaço com o conteúdo nesse
+          mesmo ponto; entre sm e md o conteúdo real fica estreito demais
+          pras colunas, e o valor quebra dentro do próprio número e vaza
+          (diagnosticado renderizando o shell completo, com sidebar, em
+          várias larguras — não só a grade isolada). md dá margem
+          confortável nos dois lados da transição: empilhado até 767px,
+          colunas largas a partir de 768px, nunca o meio-termo apertado. */}
+      <div className="card-dominium grid grid-cols-1 divide-y divide-navy-700 p-4 md:grid-cols-2 md:divide-x md:divide-y-0">
+        <div className="pb-3 md:pb-0 md:pr-3">
           <p className="text-[11px] text-cream-100/60">Reserva Pessoal</p>
           <p className="tabular text-lg font-semibold text-cream-100">{formatarMoeda(dados.patrimonioPessoal)}</p>
         </div>
-        <div className="pt-3 sm:pt-0 sm:pl-3">
+        <div className="pt-3 md:pt-0 md:pl-3">
           <p className="text-[11px] text-cream-100/60">Reserva Patrimonial</p>
           <p className="tabular text-gold-gradient text-lg font-semibold">
             {formatarMoeda(dados.patrimonioPatrimonial)}
@@ -206,14 +212,14 @@ export default function DashboardPage() {
       </div>
 
       {dados.janela !== "mes" && (
-        <div className="card-dominium grid grid-cols-1 divide-y divide-navy-700 p-4 sm:grid-cols-2 sm:divide-x sm:divide-y-0">
-          <div className="pb-3 sm:pb-0 sm:pr-3">
+        <div className="card-dominium grid grid-cols-1 divide-y divide-navy-700 p-4 md:grid-cols-2 md:divide-x md:divide-y-0">
+          <div className="pb-3 md:pb-0 md:pr-3">
             <p className="text-[11px] text-cream-100/60">Projeção Reserva Pessoal</p>
             <p className="tabular text-lg font-semibold text-cream-100">
               {formatarMoeda(dados.projecaoPatrimonioPessoal)}
             </p>
           </div>
-          <div className="pt-3 sm:pt-0 sm:pl-3">
+          <div className="pt-3 md:pt-0 md:pl-3">
             <p className="text-[11px] text-cream-100/60">Projeção Reserva Patrimonial</p>
             <p className="tabular text-gold-gradient text-lg font-semibold">
               {formatarMoeda(dados.projecaoPatrimonioPatrimonial)}
