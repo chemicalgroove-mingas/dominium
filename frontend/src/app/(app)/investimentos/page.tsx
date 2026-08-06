@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Check, Clock, Palette, Pencil, Plus, Trash2, X } from "lucide-react";
+import { DndContext, closestCenter } from "@dnd-kit/core";
+import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useInstancias } from "@/contexts/InstanciasContext";
@@ -9,6 +11,10 @@ import { CampoMoeda } from "@/components/dominium/CampoMoeda";
 import { CampoMes } from "@/components/dominium/CampoMes";
 import { CampoPrazoMeses } from "@/components/dominium/CampoPrazoMeses";
 import { SyncStatusBadge } from "@/components/dominium/SyncStatusBadge";
+import { AlcaArrastar } from "@/components/dominium/AlcaArrastar";
+import { ItemArrastavel } from "@/components/dominium/ItemArrastavel";
+import { Toast } from "@/components/dominium/Toast";
+import { useOrdenacaoArrastavel } from "@/hooks/useOrdenacaoArrastavel";
 import { formatarDataHora, formatarMoeda } from "@/lib/format";
 import { diferencaEmMeses, formatarMesLabel, mesAtual, somarMeses } from "@/lib/mes";
 import { centavosParaNumero, numeroParaCentavos } from "@/lib/moeda";
@@ -143,6 +149,12 @@ export default function InvestimentosPage() {
   }, [pendentesUsuario.length, carregar]);
 
   const patrimonioTotal = useMemo(() => contas.reduce((acc, c) => acc + c.patrimonio, 0), [contas]);
+
+  const { sensors, onDragEnd, erro: erroOrdenacao, limparErro: limparErroOrdenacao } = useOrdenacaoArrastavel(
+    "reserva",
+    contas,
+    setContas
+  );
 
   function abrirFoco(conta: ContaInvestimento) {
     setContaFoco(conta);
@@ -345,101 +357,114 @@ export default function InvestimentosPage() {
 
       {estado === "geral" && (
         <>
-          <div className="mb-4 grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
-            {contas.map((conta) => (
-              <div key={conta.id} className="card-dominium p-4">
-                <div className="mb-1 flex items-center gap-2">
-                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: conta.cor }} />
-                  <p className="min-w-0 flex-1 truncate text-sm font-medium" style={{ color: conta.cor }}>
-                    {conta.nome}
-                  </p>
-                  {conta.metaBatida && (
-                    <span className="flex items-center gap-1 rounded-full bg-success/10 px-2 py-0.5 text-[10px] font-medium text-success">
-                      <Check size={11} /> Meta batida
-                    </span>
-                  )}
-                  <button
-                    onClick={() => setModalProjeto({ modo: "editar", conta, aporte: conta.aportes[0] || null })}
-                    className="p-1 text-cream-100/40 hover:text-gold-300"
-                    aria-label="Editar projeto"
-                  >
-                    <Pencil size={14} />
-                  </button>
-                  <button
-                    onClick={() => setContaParaExcluir(conta)}
-                    className="p-1 text-cream-100/40 hover:text-danger"
-                    aria-label="Excluir conta"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+            <SortableContext items={contas.map((c) => c.id)} strategy={verticalListSortingStrategy}>
+              <div className="mb-4 grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
+                {contas.map((conta) => (
+                  <ItemArrastavel key={conta.id} id={conta.id}>
+                    {({ attributes, listeners, setNodeRef, style, isDragging }) => (
+                      <div
+                        ref={setNodeRef}
+                        style={style}
+                        className={`card-dominium p-4 ${isDragging ? "z-10 opacity-60 shadow-xl shadow-black/40" : ""}`}
+                      >
+                        <div className="mb-1 flex items-center gap-2">
+                          <AlcaArrastar attributes={attributes} listeners={listeners} />
+                          <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: conta.cor }} />
+                          <p className="min-w-0 flex-1 truncate text-sm font-medium" style={{ color: conta.cor }}>
+                            {conta.nome}
+                          </p>
+                          {conta.metaBatida && (
+                            <span className="flex items-center gap-1 rounded-full bg-success/10 px-2 py-0.5 text-[10px] font-medium text-success">
+                              <Check size={11} /> Meta batida
+                            </span>
+                          )}
+                          <button
+                            onClick={() => setModalProjeto({ modo: "editar", conta, aporte: conta.aportes[0] || null })}
+                            className="p-1 text-cream-100/40 hover:text-gold-300"
+                            aria-label="Editar projeto"
+                          >
+                            <Pencil size={14} />
+                          </button>
+                          <button
+                            onClick={() => setContaParaExcluir(conta)}
+                            className="p-1 text-cream-100/40 hover:text-danger"
+                            aria-label="Excluir conta"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
 
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <div>
-                    <p className="tabular text-lg font-semibold text-cream-100">
-                      {formatarMoeda(conta.patrimonio)}{" "}
-                      <span className="text-xs font-normal text-cream-100/50">
-                        · {conta.aportes.length} valor{conta.aportes.length === 1 ? "" : "es"}
-                      </span>
-                    </p>
-                    {(() => {
-                      const metaValor = conta.aportes.find((a) => a.valorMeta != null)?.valorMeta;
-                      return (
-                        metaValor != null && (
-                          <p className="tabular text-sm text-cream-100/50">Meta: {formatarMoeda(metaValor)}</p>
-                        )
-                      );
-                    })()}
-                  </div>
-                  <button
-                    onClick={() => {
-                      const aporteMeta = conta.aportes.find((a) => a.valorMeta != null);
-                      if (aporteMeta) {
-                        setModalLancarValor({ conta, aporteMeta });
-                      } else {
-                        abrirFoco(conta);
-                      }
-                    }}
-                    className="shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium"
-                    style={{ borderColor: conta.cor, color: conta.cor }}
-                  >
-                    Lançar Valor Extra
-                  </button>
-                </div>
+                        <div className="mb-3 flex items-center justify-between gap-3">
+                          <div>
+                            <p className="tabular text-lg font-semibold text-cream-100">
+                              {formatarMoeda(conta.patrimonio)}{" "}
+                              <span className="text-xs font-normal text-cream-100/50">
+                                · {conta.aportes.length} valor{conta.aportes.length === 1 ? "" : "es"}
+                              </span>
+                            </p>
+                            {(() => {
+                              const metaValor = conta.aportes.find((a) => a.valorMeta != null)?.valorMeta;
+                              return (
+                                metaValor != null && (
+                                  <p className="tabular text-sm text-cream-100/50">Meta: {formatarMoeda(metaValor)}</p>
+                                )
+                              );
+                            })()}
+                          </div>
+                          <button
+                            onClick={() => {
+                              const aporteMeta = conta.aportes.find((a) => a.valorMeta != null);
+                              if (aporteMeta) {
+                                setModalLancarValor({ conta, aporteMeta });
+                              } else {
+                                abrirFoco(conta);
+                              }
+                            }}
+                            className="shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium"
+                            style={{ borderColor: conta.cor, color: conta.cor }}
+                          >
+                            Lançar Valor Extra
+                          </button>
+                        </div>
 
-                <ListaValores
-                  conta={conta}
-                  onEditarValor={(a) => abrirEdicaoValor(conta, a)}
-                  onExcluirValor={excluirAporte}
-                  onExcluirResgate={excluirResgate}
-                  onExcluirValorExtra={excluirValorExtra}
-                />
+                        <ListaValores
+                          conta={conta}
+                          onEditarValor={(a) => abrirEdicaoValor(conta, a)}
+                          onExcluirValor={excluirAporte}
+                          onExcluirResgate={excluirResgate}
+                          onExcluirValorExtra={excluirValorExtra}
+                        />
 
-                <div className="mt-3 flex flex-wrap gap-2 border-t border-navy-700 pt-3">
-                  <button
-                    onClick={() => setModalResgate(conta)}
-                    className="rounded-xl border border-danger px-3 py-2 text-xs text-danger"
-                  >
-                    Resgatar
-                  </button>
-                  <button
-                    onClick={() => setModalAtualizarValor(conta)}
-                    className="rounded-xl border border-navy-700 px-3 py-2 text-xs text-cream-100/70"
-                  >
-                    Atualizar Valor
-                  </button>
-                  {conta.metaBatida && (
-                    <button
-                      onClick={() => setModalOpcoes(conta)}
-                      className="rounded-xl border border-gold-500 px-3 py-2 text-xs text-gold-300"
-                    >
-                      Ver Opções
-                    </button>
-                  )}
-                </div>
+                        <div className="mt-3 flex flex-wrap gap-2 border-t border-navy-700 pt-3">
+                          <button
+                            onClick={() => setModalResgate(conta)}
+                            className="rounded-xl border border-danger px-3 py-2 text-xs text-danger"
+                          >
+                            Resgatar
+                          </button>
+                          <button
+                            onClick={() => setModalAtualizarValor(conta)}
+                            className="rounded-xl border border-navy-700 px-3 py-2 text-xs text-cream-100/70"
+                          >
+                            Atualizar Valor
+                          </button>
+                          {conta.metaBatida && (
+                            <button
+                              onClick={() => setModalOpcoes(conta)}
+                              className="rounded-xl border border-gold-500 px-3 py-2 text-xs text-gold-300"
+                            >
+                              Ver Opções
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </ItemArrastavel>
+                ))}
               </div>
-            ))}
-          </div>
+            </SortableContext>
+          </DndContext>
 
           {!carregando && !semDadosOffline && contas.length === 0 && (
             <div className="card-dominium mb-4 p-6 text-center text-sm text-cream-100/70">
@@ -709,6 +734,8 @@ export default function InvestimentosPage() {
           }}
         />
       )}
+
+      {erroOrdenacao && <Toast mensagem={erroOrdenacao} tipo="erro" onFechar={limparErroOrdenacao} />}
     </div>
   );
 }

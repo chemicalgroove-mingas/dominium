@@ -1,13 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, Check, Undo2 } from "lucide-react";
+import { DndContext, closestCenter } from "@dnd-kit/core";
+import { SortableContext, verticalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { api, ApiError } from "@/lib/api";
 import { formatarDataHora, formatarMoeda } from "@/lib/format";
 import { formatarMesInline, formatarMesLabel, mesAtual, somarMeses } from "@/lib/mes";
 import { centavosParaNumero, numeroParaCentavos } from "@/lib/moeda";
 import { CampoMoeda } from "@/components/dominium/CampoMoeda";
+import { AlcaArrastar } from "@/components/dominium/AlcaArrastar";
+import { Toast } from "@/components/dominium/Toast";
 import { useAuth } from "@/contexts/AuthContext";
+import { useOrdenacaoArrastavel } from "@/hooks/useOrdenacaoArrastavel";
 import { lerSnapshot, salvarSnapshot } from "@/lib/offline/snapshots";
 import type { InstanciaEmAberto } from "@/lib/types";
 
@@ -121,6 +127,29 @@ export default function PagamentosPage() {
     setSelecionados((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   }
 
+  const instanciasVisiveis = useMemo(
+    () => dados?.instancias.filter((i) => i.itens.length > 0) ?? [],
+    [dados]
+  );
+
+  // Reposiciona só as instâncias visíveis (com item em aberto) dentro de
+  // `dados.instancias`, preservando a posição das demais — mesmo princípio
+  // de InstanciasContext.reordenar.
+  const setInstanciasVisiveis = useCallback((novaOrdem: InstanciaEmAberto[]) => {
+    setDados((prev) => {
+      if (!prev) return prev;
+      const idsSet = new Set(novaOrdem.map((i) => i.id));
+      let cursor = 0;
+      return { ...prev, instancias: prev.instancias.map((i) => (idsSet.has(i.id) ? novaOrdem[cursor++] : i)) };
+    });
+  }, []);
+
+  const { sensors, onDragEnd, erro: erroOrdenacao, limparErro } = useOrdenacaoArrastavel(
+    "pagamentos",
+    instanciasVisiveis,
+    setInstanciasVisiveis
+  );
+
   async function reverterPagamento(lancamentoId: string) {
     if (
       !confirm(
@@ -191,99 +220,28 @@ export default function PagamentosPage() {
         </div>
       )}
 
-      <div className="flex flex-col gap-4">
-        {dados?.instancias
-          .filter((i) => i.itens.length > 0)
-          .map((instancia) => (
-            <div key={instancia.id} className="card-dominium p-4">
-              <div className="mb-3 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="h-3 w-3 rounded-full" style={{ background: instancia.cor }} />
-                  <span className="text-sm font-medium text-cream-100">
-                    {instancia.nome}
-                    <span className="font-normal text-cream-100/50"> ({formatarMesInline(mesReferencia)})</span>
-                  </span>
-                </div>
-                <span className="tabular text-sm font-semibold text-cream-100">
-                  {formatarMoeda(instancia.totalAberto)}
-                </span>
-              </div>
-
-              <div className="mb-3 flex flex-col gap-1">
-                {instancia.itens.map((item) =>
-                  item.pago ? (
-                    <div key={item.lancamentoId} className="flex items-center gap-2 text-sm">
-                      <Check size={14} className="shrink-0 text-success" />
-                      <span className="flex-1 truncate text-cream-100/50 line-through">{item.descricao}</span>
-                      <span className="tabular text-cream-100/40">{formatarMoeda(item.valorPago ?? item.valor)}</span>
-                      <button
-                        onClick={() => reverterPagamento(item.lancamentoId)}
-                        className="flex items-center gap-1 text-xs text-cream-100/50 hover:text-danger"
-                      >
-                        <Undo2 size={12} /> Reverter
-                      </button>
-                    </div>
-                  ) : (
-                    <div key={item.lancamentoId} className="flex items-center gap-2 text-sm">
-                      {instanciaSelecionando === instancia.id && (
-                        <input
-                          type="checkbox"
-                          checked={selecionados.includes(item.lancamentoId)}
-                          onChange={() => toggleSelecionado(item.lancamentoId)}
-                          className="h-4 w-4"
-                        />
-                      )}
-                      <span className="flex-1 truncate text-cream-100/80">{item.descricao}</span>
-                      <span className="tabular text-cream-100/70">{formatarMoeda(item.valor)}</span>
-                    </div>
-                  )
-                )}
-              </div>
-
-              {instancia.totalAberto <= 0 ? (
-                <p className="flex items-center justify-center gap-1 rounded-xl border border-success/30 py-2 text-sm text-success">
-                  <Check size={14} /> Tudo pago nesta referência
-                </p>
-              ) : (
-                <>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => pagarTotal(instancia.id)}
-                      className="btn-gold flex-1 py-2 text-sm"
-                    >
-                      Pagar Total
-                    </button>
-                    {instanciaSelecionando === instancia.id ? (
-                      <button
-                        onClick={() => pagarSelecionados(instancia.id)}
-                        disabled={selecionados.length === 0}
-                        className="flex-1 rounded-xl border border-gold-500 py-2 text-sm text-gold-300 disabled:opacity-40"
-                      >
-                        Pagar marcados ({selecionados.length})
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => {
-                          setInstanciaSelecionando(instancia.id);
-                          setSelecionados([]);
-                        }}
-                        className="flex-1 rounded-xl border border-navy-700 py-2 text-sm text-cream-100/70"
-                      >
-                        Selecionar
-                      </button>
-                    )}
-                  </div>
-                  <button
-                    onClick={() => setOutroValor(instancia)}
-                    className="mt-2 w-full text-center text-xs text-gold-300 hover:text-gold-500"
-                  >
-                    Outro valor
-                  </button>
-                </>
-              )}
-            </div>
-          ))}
-      </div>
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+        <SortableContext items={instanciasVisiveis.map((i) => i.id)} strategy={verticalListSortingStrategy}>
+          <div className="flex flex-col gap-4">
+            {instanciasVisiveis.map((instancia) => (
+              <CardPagamentoInstancia
+                key={instancia.id}
+                instancia={instancia}
+                mesReferencia={mesReferencia}
+                instanciaSelecionando={instanciaSelecionando}
+                selecionados={selecionados}
+                toggleSelecionado={toggleSelecionado}
+                setInstanciaSelecionando={setInstanciaSelecionando}
+                setSelecionados={setSelecionados}
+                pagarTotal={pagarTotal}
+                pagarSelecionados={pagarSelecionados}
+                reverterPagamento={reverterPagamento}
+                onOutroValor={() => setOutroValor(instancia)}
+              />
+            ))}
+          </div>
+        </SortableContext>
+      </DndContext>
 
       {outroValor && (
         <SubmodalOutroValor
@@ -295,6 +253,128 @@ export default function PagamentosPage() {
             await carregar();
           }}
         />
+      )}
+
+      {erroOrdenacao && <Toast mensagem={erroOrdenacao} tipo="erro" onFechar={limparErro} />}
+    </div>
+  );
+}
+
+function CardPagamentoInstancia({
+  instancia,
+  mesReferencia,
+  instanciaSelecionando,
+  selecionados,
+  toggleSelecionado,
+  setInstanciaSelecionando,
+  setSelecionados,
+  pagarTotal,
+  pagarSelecionados,
+  reverterPagamento,
+  onOutroValor,
+}: {
+  instancia: InstanciaEmAberto;
+  mesReferencia: string;
+  instanciaSelecionando: string | null;
+  selecionados: string[];
+  toggleSelecionado: (id: string) => void;
+  setInstanciaSelecionando: (id: string | null) => void;
+  setSelecionados: (ids: string[]) => void;
+  pagarTotal: (instanciaId: string) => void;
+  pagarSelecionados: (instanciaId: string) => void;
+  reverterPagamento: (lancamentoId: string) => void;
+  onOutroValor: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: instancia.id,
+  });
+  const style = { transform: CSS.Transform.toString(transform), transition };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`card-dominium p-4 ${isDragging ? "z-10 opacity-60 shadow-xl shadow-black/40" : ""}`}
+    >
+      <div className="mb-3 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <AlcaArrastar attributes={attributes} listeners={listeners} />
+          <span className="h-3 w-3 rounded-full" style={{ background: instancia.cor }} />
+          <span className="text-sm font-medium text-cream-100">
+            {instancia.nome}
+            <span className="font-normal text-cream-100/50"> ({formatarMesInline(mesReferencia)})</span>
+          </span>
+        </div>
+        <span className="tabular text-sm font-semibold text-cream-100">
+          {formatarMoeda(instancia.totalAberto)}
+        </span>
+      </div>
+
+      <div className="mb-3 flex flex-col gap-1">
+        {instancia.itens.map((item) =>
+          item.pago ? (
+            <div key={item.lancamentoId} className="flex items-center gap-2 text-sm">
+              <Check size={14} className="shrink-0 text-success" />
+              <span className="flex-1 truncate text-cream-100/50 line-through">{item.descricao}</span>
+              <span className="tabular text-cream-100/40">{formatarMoeda(item.valorPago ?? item.valor)}</span>
+              <button
+                onClick={() => reverterPagamento(item.lancamentoId)}
+                className="flex items-center gap-1 text-xs text-cream-100/50 hover:text-danger"
+              >
+                <Undo2 size={12} /> Reverter
+              </button>
+            </div>
+          ) : (
+            <div key={item.lancamentoId} className="flex items-center gap-2 text-sm">
+              {instanciaSelecionando === instancia.id && (
+                <input
+                  type="checkbox"
+                  checked={selecionados.includes(item.lancamentoId)}
+                  onChange={() => toggleSelecionado(item.lancamentoId)}
+                  className="h-4 w-4"
+                />
+              )}
+              <span className="flex-1 truncate text-cream-100/80">{item.descricao}</span>
+              <span className="tabular text-cream-100/70">{formatarMoeda(item.valor)}</span>
+            </div>
+          )
+        )}
+      </div>
+
+      {instancia.totalAberto <= 0 ? (
+        <p className="flex items-center justify-center gap-1 rounded-xl border border-success/30 py-2 text-sm text-success">
+          <Check size={14} /> Tudo pago nesta referência
+        </p>
+      ) : (
+        <>
+          <div className="flex gap-2">
+            <button onClick={() => pagarTotal(instancia.id)} className="btn-gold flex-1 py-2 text-sm">
+              Pagar Total
+            </button>
+            {instanciaSelecionando === instancia.id ? (
+              <button
+                onClick={() => pagarSelecionados(instancia.id)}
+                disabled={selecionados.length === 0}
+                className="flex-1 rounded-xl border border-gold-500 py-2 text-sm text-gold-300 disabled:opacity-40"
+              >
+                Pagar marcados ({selecionados.length})
+              </button>
+            ) : (
+              <button
+                onClick={() => {
+                  setInstanciaSelecionando(instancia.id);
+                  setSelecionados([]);
+                }}
+                className="flex-1 rounded-xl border border-navy-700 py-2 text-sm text-cream-100/70"
+              >
+                Selecionar
+              </button>
+            )}
+          </div>
+          <button onClick={onOutroValor} className="mt-2 w-full text-center text-xs text-gold-300 hover:text-gold-500">
+            Outro valor
+          </button>
+        </>
       )}
     </div>
   );

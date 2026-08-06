@@ -11,6 +11,7 @@ type InstanciasContextValue = {
   carregando: boolean;
   recarregar: () => Promise<void>;
   porGrupo: (grupo: Grupo) => Instancia[];
+  reordenar: (ids: string[]) => void;
 };
 
 const InstanciasContext = createContext<InstanciasContextValue | null>(null);
@@ -63,8 +64,21 @@ export function InstanciasProvider({ children }: { children: React.ReactNode }) 
     [instancias]
   );
 
+  // Reordenação otimista (drag-and-drop): reposiciona só os itens de `ids`
+  // (o subconjunto de um contexto/tela) nos mesmos índices que já ocupavam
+  // na lista mista de grupos, preservando os demais intocados.
+  const reordenar = useCallback((ids: string[]) => {
+    setInstancias((prev) => {
+      const porId = new Map(prev.map((i) => [i.id, i]));
+      const idsSet = new Set(ids);
+      const novos = ids.map((id) => porId.get(id)).filter((i): i is Instancia => !!i);
+      let cursor = 0;
+      return prev.map((i) => (idsSet.has(i.id) ? novos[cursor++] : i));
+    });
+  }, []);
+
   return (
-    <InstanciasContext.Provider value={{ instancias, carregando, recarregar, porGrupo }}>
+    <InstanciasContext.Provider value={{ instancias, carregando, recarregar, porGrupo, reordenar }}>
       {children}
     </InstanciasContext.Provider>
   );
