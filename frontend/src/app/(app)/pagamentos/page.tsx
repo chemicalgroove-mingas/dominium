@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, Check, Undo2 } from "lucide-react";
-import { DndContext, closestCenter } from "@dnd-kit/core";
+import { DndContext, DragOverlay, closestCenter } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { api, ApiError } from "@/lib/api";
@@ -144,11 +144,15 @@ export default function PagamentosPage() {
     });
   }, []);
 
-  const { sensors, onDragEnd, erro: erroOrdenacao, limparErro } = useOrdenacaoArrastavel(
-    "pagamentos",
-    instanciasVisiveis,
-    setInstanciasVisiveis
-  );
+  const {
+    sensors,
+    onDragStart,
+    onDragEnd,
+    onDragCancel,
+    itemAtivo,
+    erro: erroOrdenacao,
+    limparErro,
+  } = useOrdenacaoArrastavel("pagamentos", instanciasVisiveis, setInstanciasVisiveis);
 
   async function reverterPagamento(lancamentoId: string) {
     if (
@@ -220,11 +224,17 @@ export default function PagamentosPage() {
         </div>
       )}
 
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragStart={onDragStart}
+        onDragEnd={onDragEnd}
+        onDragCancel={onDragCancel}
+      >
         <SortableContext items={instanciasVisiveis.map((i) => i.id)} strategy={verticalListSortingStrategy}>
           <div className="flex flex-col gap-4">
             {instanciasVisiveis.map((instancia) => (
-              <CardPagamentoInstancia
+              <CardPagamentoInstanciaOrdenavel
                 key={instancia.id}
                 instancia={instancia}
                 mesReferencia={mesReferencia}
@@ -241,6 +251,24 @@ export default function PagamentosPage() {
             ))}
           </div>
         </SortableContext>
+        <DragOverlay>
+          {itemAtivo && (
+            <CardPagamentoInstancia
+              instancia={itemAtivo}
+              mesReferencia={mesReferencia}
+              instanciaSelecionando={null}
+              selecionados={[]}
+              toggleSelecionado={() => {}}
+              setInstanciaSelecionando={() => {}}
+              setSelecionados={() => {}}
+              pagarTotal={() => {}}
+              pagarSelecionados={() => {}}
+              reverterPagamento={() => {}}
+              onOutroValor={() => {}}
+              solido
+            />
+          )}
+        </DragOverlay>
       </DndContext>
 
       {outroValor && (
@@ -260,6 +288,31 @@ export default function PagamentosPage() {
   );
 }
 
+type ArrasteProps = {
+  setNodeRef: (node: HTMLElement | null) => void;
+  style: React.CSSProperties;
+  attributes: ReturnType<typeof useSortable>["attributes"];
+  listeners: ReturnType<typeof useSortable>["listeners"];
+  isDragging: boolean;
+};
+
+// Wrapper que só existe pra chamar useSortable — a cópia sólida dentro do
+// <DragOverlay> usa o componente presentacional direto, sem passar por
+// aqui (senão duplicaria o id no SortableContext).
+function CardPagamentoInstanciaOrdenavel(props: Omit<React.ComponentProps<typeof CardPagamentoInstancia>, "arraste">) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: props.instancia.id,
+  });
+  const arraste: ArrasteProps = {
+    setNodeRef,
+    style: { transform: CSS.Transform.toString(transform), transition },
+    attributes,
+    listeners,
+    isDragging,
+  };
+  return <CardPagamentoInstancia {...props} arraste={arraste} />;
+}
+
 function CardPagamentoInstancia({
   instancia,
   mesReferencia,
@@ -272,6 +325,8 @@ function CardPagamentoInstancia({
   pagarSelecionados,
   reverterPagamento,
   onOutroValor,
+  arraste,
+  solido,
 }: {
   instancia: InstanciaEmAberto;
   mesReferencia: string;
@@ -284,21 +339,20 @@ function CardPagamentoInstancia({
   pagarSelecionados: (instanciaId: string) => void;
   reverterPagamento: (lancamentoId: string) => void;
   onOutroValor: () => void;
+  arraste?: ArrasteProps;
+  solido?: boolean;
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: instancia.id,
-  });
-  const style = { transform: CSS.Transform.toString(transform), transition };
-
   return (
     <div
-      ref={setNodeRef}
-      style={style}
-      className={`card-dominium p-4 ${isDragging ? "z-10 opacity-60 shadow-xl shadow-black/40" : ""}`}
+      ref={arraste?.setNodeRef}
+      style={arraste?.style}
+      className={`card-dominium p-4 ${
+        solido ? "shadow-2xl shadow-black/50" : arraste?.isDragging ? "opacity-30" : ""
+      }`}
     >
       <div className="mb-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <AlcaArrastar attributes={attributes} listeners={listeners} />
+          {arraste && <AlcaArrastar attributes={arraste.attributes} listeners={arraste.listeners} />}
           <span className="h-3 w-3 rounded-full" style={{ background: instancia.cor }} />
           <span className="text-sm font-medium text-cream-100">
             {instancia.nome}

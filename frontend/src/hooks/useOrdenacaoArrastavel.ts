@@ -1,7 +1,14 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
+import {
+  PointerSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core";
 import { arrayMove } from "@dnd-kit/sortable";
 import { api } from "@/lib/api";
 
@@ -16,6 +23,7 @@ export function useOrdenacaoArrastavel<T extends { id: string }>(
   setItens: (itens: T[]) => void
 ) {
   const [erro, setErro] = useState<string | null>(null);
+  const [activeId, setActiveId] = useState<string | null>(null);
 
   // TouchSensor com delay de long-press: se o dedo mover mais que a
   // tolerância antes do delay passar, o dnd-kit cancela a ativação do drag e
@@ -26,8 +34,13 @@ export function useOrdenacaoArrastavel<T extends { id: string }>(
     useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } })
   );
 
+  const onDragStart = useCallback((event: DragStartEvent) => {
+    setActiveId(String(event.active.id));
+  }, []);
+
   const onDragEnd = useCallback(
     (event: DragEndEvent) => {
+      setActiveId(null);
       const { active, over } = event;
       if (!over || active.id === over.id) return;
 
@@ -52,7 +65,24 @@ export function useOrdenacaoArrastavel<T extends { id: string }>(
     [contexto, itens, setItens]
   );
 
-  const idsAtuais = useMemo(() => itens.map((i) => i.id), [itens]);
+  const onDragCancel = useCallback(() => setActiveId(null), []);
 
-  return { sensors, onDragEnd, idsAtuais, erro, limparErro: () => setErro(null) };
+  const idsAtuais = useMemo(() => itens.map((i) => i.id), [itens]);
+  // O item ativo é usado pra renderizar o <DragOverlay> — a cópia sólida,
+  // de tamanho fixo, que segue o cursor/dedo. Sem isso o card original (que
+  // continua no grid, sendo transformado no próprio lugar) fica deformado —
+  // é exatamente o problema que o DragOverlay existe pra resolver.
+  const itemAtivo = useMemo(() => itens.find((i) => i.id === activeId) ?? null, [itens, activeId]);
+
+  return {
+    sensors,
+    onDragStart,
+    onDragEnd,
+    onDragCancel,
+    activeId,
+    itemAtivo,
+    idsAtuais,
+    erro,
+    limparErro: () => setErro(null),
+  };
 }

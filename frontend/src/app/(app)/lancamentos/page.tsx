@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Clock, Pencil, Plus, Trash2 } from "lucide-react";
-import { DndContext, closestCenter } from "@dnd-kit/core";
-import { SortableContext, verticalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
+import { DndContext, DragOverlay, closestCenter } from "@dnd-kit/core";
+import { SortableContext, rectSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
@@ -116,11 +116,15 @@ export default function LancamentosPage() {
     (novaOrdem: Instancia[]) => reordenar(novaOrdem.map((i) => i.id)),
     [reordenar]
   );
-  const { sensors, onDragEnd, erro: erroOrdenacao, limparErro: limparErroOrdenacao } = useOrdenacaoArrastavel(
-    contextoOrdenacao,
-    instanciasDoGrupo,
-    setInstanciasDoGrupo
-  );
+  const {
+    sensors,
+    onDragStart,
+    onDragEnd,
+    onDragCancel,
+    itemAtivo,
+    erro: erroOrdenacao,
+    limparErro: limparErroOrdenacao,
+  } = useOrdenacaoArrastavel(contextoOrdenacao, instanciasDoGrupo, setInstanciasDoGrupo);
 
   const carregarResumo = useCallback(async () => {
     try {
@@ -439,8 +443,14 @@ export default function LancamentosPage() {
 
       {estado === "geral" && (
         <>
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-            <SortableContext items={instanciasDoGrupo.map((i) => i.id)} strategy={verticalListSortingStrategy}>
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragStart={onDragStart}
+            onDragEnd={onDragEnd}
+            onDragCancel={onDragCancel}
+          >
+            <SortableContext items={instanciasDoGrupo.map((i) => i.id)} strategy={rectSortingStrategy}>
               <div className="mb-4 grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
                 {instanciasDoGrupo.map((i) => (
                   <GavetaCardOrdenavel
@@ -459,6 +469,22 @@ export default function LancamentosPage() {
                 ))}
               </div>
             </SortableContext>
+            <DragOverlay>
+              {itemAtivo && (
+                <GavetaCard
+                  instancia={itemAtivo}
+                  dados={gavetas[itemAtivo.id]}
+                  mesReferencia={mesReferencia}
+                  janela={janela}
+                  labelLancar={LABEL_LANCAR[grupo]}
+                  onEditarInstancia={() => {}}
+                  onExcluirInstancia={() => {}}
+                  onEditarLancamento={() => {}}
+                  onExcluirLancamento={() => {}}
+                  solido
+                />
+              )}
+            </DragOverlay>
           </DndContext>
 
           {instanciasDoGrupo.length === 0 && (
@@ -835,6 +861,7 @@ function GavetaCard({
   onExcluirLancamento,
   sticky,
   arraste,
+  solido,
 }: {
   instancia: Instancia;
   dados?: DadosGaveta;
@@ -848,6 +875,12 @@ function GavetaCard({
   onExcluirLancamento: (id: string) => void;
   sticky?: boolean;
   arraste?: ArrasteProps;
+  // Cópia sólida renderizada dentro do <DragOverlay> — sempre opaca, do
+  // mesmo tamanho, com sombra de "flutuando". O card original na lista (que
+  // continua sendo transformado no próprio lugar pelo SortableContext) vira
+  // só um placeholder esmaecido enquanto isso, nunca os dois "sólidos" ao
+  // mesmo tempo.
+  solido?: boolean;
 }) {
   const lancamentos = dados?.lancamentos || [];
   const totalJanela = dados?.totalJanela || 0;
@@ -858,7 +891,7 @@ function GavetaCard({
       ref={arraste?.setNodeRef}
       style={arraste?.style}
       className={`card-dominium p-4 ${sticky ? "lg:sticky lg:top-8" : ""} ${
-        arraste?.isDragging ? "z-10 opacity-60 shadow-xl shadow-black/40" : ""
+        solido ? "shadow-2xl shadow-black/50" : arraste?.isDragging ? "opacity-30" : ""
       }`}
     >
       <div className="mb-1 flex items-center gap-2">
