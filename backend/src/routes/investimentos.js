@@ -5,6 +5,7 @@ const prisma = require('../lib/prisma');
 const { autenticar, exigirRole } = require('../middleware/auth');
 const { asyncHandler } = require('../utils/asyncHandler');
 const { mesAtual, somarMeses, parseMes } = require('../utils/mes');
+const { ordenarPorContexto, criarOrdenacoesIniciais } = require('../utils/ordenacaoInstancia');
 const {
   valorAcumuladoAporte,
   parcelasDecorridas,
@@ -56,7 +57,7 @@ async function montarConta(instancia) {
 router.get('/', asyncHandler(async (req, res) => {
   const { subgrupo, instanciaId } = req.query;
 
-  const instancias = await prisma.instancia.findMany({
+  const instanciasBrutas = await prisma.instancia.findMany({
     where: {
       usuarioId: req.usuario.id,
       grupo: 'investimento',
@@ -64,7 +65,11 @@ router.get('/', asyncHandler(async (req, res) => {
       ...(subgrupo && SUBGRUPOS.includes(String(subgrupo)) ? { subgrupo: String(subgrupo) } : {}),
     },
     orderBy: { criadoEm: 'asc' },
+    include: { ordenacoes: { where: { contexto: 'reserva' } } },
   });
+  const instancias = ordenarPorContexto(instanciasBrutas, 'reserva').map(
+    ({ ordenacoes, ...instancia }) => instancia
+  );
 
   const contas = await Promise.all(instancias.map(montarConta));
 
@@ -418,6 +423,7 @@ router.post('/projeto', asyncHandler(async (req, res) => {
         ...dadosAporte,
       },
     });
+    await criarOrdenacoesIniciais(tx, instancia);
     return { instancia, aporte };
   });
 

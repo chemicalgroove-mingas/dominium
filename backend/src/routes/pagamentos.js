@@ -4,6 +4,7 @@ const prisma = require('../lib/prisma');
 const { autenticar, exigirRole } = require('../middleware/auth');
 const { somarMeses, mesAtual, ultimoDiaDoMes, compararMeses } = require('../utils/mes');
 const { asyncHandler } = require('../utils/asyncHandler');
+const { ordenarPorContexto } = require('../utils/ordenacaoInstancia');
 
 const router = express.Router();
 router.use(autenticar, exigirRole('USER'));
@@ -53,10 +54,12 @@ router.get('/em-aberto', asyncHandler(async (req, res) => {
     ? String(req.query.mesReferencia)
     : mesAtual();
 
-  const instancias = await prisma.instancia.findMany({
+  const instanciasBrutas = await prisma.instancia.findMany({
     where: { usuarioId: req.usuario.id, grupo: 'gasto', ativa: true },
     orderBy: { criadoEm: 'asc' },
+    include: { ordenacoes: { where: { contexto: 'pagamentos' } } },
   });
+  const instancias = ordenarPorContexto(instanciasBrutas, 'pagamentos');
 
   const resultado = [];
   for (const instancia of instancias) {
