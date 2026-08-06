@@ -572,7 +572,7 @@ export default function InvestimentosPage() {
                 {formatarMoeda(contas.find((c) => c.id === contaFoco.id)?.patrimonio ?? contaFoco.patrimonio)}
               </p>
 
-              <div className="lg:max-h-[calc(100vh-14rem)] lg:overflow-y-auto lg:pr-1">
+              <div>
                 <ListaValores
                   conta={contas.find((c) => c.id === contaFoco.id) || contaFoco}
                   onEditarValor={(a) => abrirEdicaoValor(contaFoco, a)}

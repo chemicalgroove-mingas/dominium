@@ -858,7 +858,7 @@ function GavetaCard({
         <p className="py-3 text-center text-sm text-cream-100/50">Sem lançamentos.</p>
       )}
 
-      <div className="flex flex-col gap-2 lg:max-h-[calc(100vh-14rem)] lg:overflow-y-auto lg:pr-1">
+      <div className="flex flex-col gap-2">
         {lancamentos.map((l) => {
           const sincronizado = !l.syncStatus || l.syncStatus === "synced";
           return (
