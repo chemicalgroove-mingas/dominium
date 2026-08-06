@@ -60,6 +60,21 @@ model Instancia {
   lancamentos   Lancamento[]
   pagamentos    Pagamento[]
   investimentos Investimento[]
+  ordenacoes    OrdenacaoInstancia[]
+}
+
+// contexto: lancamentos-gasto | lancamentos-receita | pagamentos | reserva —
+// ordem manual (drag-and-drop) independente por tela; uma instancia pode
+// aparecer em mais de um contexto (ex. gasto -> lancamentos-gasto e pagamentos).
+model OrdenacaoInstancia {
+  id          String    @id @default(uuid())
+  instanciaId String
+  instancia   Instancia @relation(fields: [instanciaId], references: [id], onDelete: Cascade)
+  contexto    String
+  ordem       Int
+  criadoEm    DateTime  @default(now())
+
+  @@unique([instanciaId, contexto])
 }
 
 // tipo: fixo | temporario

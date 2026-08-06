@@ -3,6 +3,12 @@ const { z } = require('zod');
 const prisma = require('../lib/prisma');
 const { autenticar, exigirRole } = require('../middleware/auth');
 const { asyncHandler } = require('../utils/asyncHandler');
+const {
+  CONTEXTOS,
+  CONTEXTO_POR_GRUPO,
+  ordenarPorContexto,
+  criarOrdenacoesIniciais,
+} = require('../utils/ordenacaoInstancia');
 
 const router = express.Router();
 router.use(autenticar, exigirRole('USER'));
@@ -36,8 +42,41 @@ router.get('/', asyncHandler(async (req, res) => {
       ...(ativas === 'true' ? { ativa: true } : {}),
     },
     orderBy: { criadoEm: 'asc' },
+    include: { ordenacoes: { where: { contexto: { in: Object.values(CONTEXTO_POR_GRUPO) } } } },
   });
-  return res.json({ instancias });
+  const ordenadas = ordenarPorContexto(instancias, (i) => CONTEXTO_POR_GRUPO[i.grupo]).map(
+    ({ ordenacoes, ...instancia }) => instancia
+  );
+  return res.json({ instancias: ordenadas });
+}));
+
+router.patch('/ordenacao', asyncHandler(async (req, res) => {
+  const schema = z.object({
+    contexto: z.enum(CONTEXTOS),
+    instanciaIds: z.array(z.string().min(1)).min(1),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ erro: parsed.error.issues[0].message });
+  const { contexto, instanciaIds } = parsed.data;
+
+  const instancias = await prisma.instancia.findMany({
+    where: { id: { in: instanciaIds }, usuarioId: req.usuario.id },
+    select: { id: true },
+  });
+  if (instancias.length !== instanciaIds.length) {
+    return res.status(404).json({ erro: 'Uma ou mais instancias nao foram encontradas.' });
+  }
+
+  await prisma.$transaction(
+    instanciaIds.map((instanciaId, ordem) =>
+      prisma.ordenacaoInstancia.upsert({
+        where: { instanciaId_contexto: { instanciaId, contexto } },
+        update: { ordem },
+        create: { instanciaId, contexto, ordem },
+      })
+    )
+  );
+  return res.json({ ok: true });
 }));
 
 router.post('/', asyncHandler(async (req, res) => {
@@ -47,6 +86,7 @@ router.post('/', asyncHandler(async (req, res) => {
   const instancia = await prisma.instancia.create({
     data: { ...parsed.data, usuarioId: req.usuario.id },
   });
+  await criarOrdenacoesIniciais(prisma, instancia);
   return res.status(201).json({ instancia });
 }));
 
