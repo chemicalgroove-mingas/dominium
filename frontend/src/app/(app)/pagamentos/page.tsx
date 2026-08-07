@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, Check, Undo2 } from "lucide-react";
 import { DndContext, DragOverlay } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
@@ -11,6 +11,7 @@ import { formatarMesInline, formatarMesLabel, mesAtual, somarMeses } from "@/lib
 import { centavosParaNumero, numeroParaCentavos } from "@/lib/moeda";
 import { CampoMoeda } from "@/components/dominium/CampoMoeda";
 import { AlcaArrastar } from "@/components/dominium/AlcaArrastar";
+import { BarraGuiaArraste } from "@/components/dominium/BarraGuiaArraste";
 import { Toast } from "@/components/dominium/Toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrdenacaoArrastavel, TRANSICAO_FIRME } from "@/hooks/useOrdenacaoArrastavel";
@@ -149,8 +150,11 @@ export default function PagamentosPage() {
     collisionDetection,
     measuring,
     onDragStart,
+    onDragMove,
     onDragEnd,
     onDragCancel,
+    emArraste,
+    indiceInsercao,
     itemAtivo,
     erro: erroOrdenacao,
     limparErro,
@@ -231,27 +235,32 @@ export default function PagamentosPage() {
         collisionDetection={collisionDetection}
         measuring={measuring}
         onDragStart={onDragStart}
+        onDragMove={onDragMove}
         onDragEnd={onDragEnd}
         onDragCancel={onDragCancel}
       >
         <SortableContext items={instanciasVisiveis.map((i) => i.id)} strategy={verticalListSortingStrategy}>
           <div className="flex flex-col gap-4">
-            {instanciasVisiveis.map((instancia) => (
-              <CardPagamentoInstanciaOrdenavel
-                key={instancia.id}
-                instancia={instancia}
-                mesReferencia={mesReferencia}
-                instanciaSelecionando={instanciaSelecionando}
-                selecionados={selecionados}
-                toggleSelecionado={toggleSelecionado}
-                setInstanciaSelecionando={setInstanciaSelecionando}
-                setSelecionados={setSelecionados}
-                pagarTotal={pagarTotal}
-                pagarSelecionados={pagarSelecionados}
-                reverterPagamento={reverterPagamento}
-                onOutroValor={() => setOutroValor(instancia)}
-              />
+            {instanciasVisiveis.map((instancia, i) => (
+              <Fragment key={instancia.id}>
+                {indiceInsercao === i && <BarraGuiaArraste />}
+                <CardPagamentoInstanciaOrdenavel
+                  instancia={instancia}
+                  mesReferencia={mesReferencia}
+                  instanciaSelecionando={instanciaSelecionando}
+                  selecionados={selecionados}
+                  toggleSelecionado={toggleSelecionado}
+                  setInstanciaSelecionando={setInstanciaSelecionando}
+                  setSelecionados={setSelecionados}
+                  pagarTotal={pagarTotal}
+                  pagarSelecionados={pagarSelecionados}
+                  reverterPagamento={reverterPagamento}
+                  onOutroValor={() => setOutroValor(instancia)}
+                  emArraste={emArraste}
+                />
+              </Fragment>
             ))}
+            {indiceInsercao === instanciasVisiveis.length && <BarraGuiaArraste key="guia-fim" />}
           </div>
         </SortableContext>
         <DragOverlay>
@@ -301,20 +310,25 @@ type ArrasteProps = {
 
 // Wrapper que só existe pra chamar useSortable — a cópia sólida dentro do
 // <DragOverlay> usa o componente presentacional direto, sem passar por
-// aqui (senão duplicaria o id no SortableContext).
-function CardPagamentoInstanciaOrdenavel(props: Omit<React.ComponentProps<typeof CardPagamentoInstancia>, "arraste">) {
+// aqui (senão duplicaria o id no SortableContext). `emArraste` suprime o
+// transform enquanto QUALQUER card estiver sendo arrastado — os cards de
+// fundo ficam parados, só a barra guia se move (ver useOrdenacaoArrastavel).
+function CardPagamentoInstanciaOrdenavel(
+  props: Omit<React.ComponentProps<typeof CardPagamentoInstancia>, "arraste"> & { emArraste: boolean }
+) {
+  const { emArraste, ...resto } = props;
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: props.instancia.id,
     transition: TRANSICAO_FIRME,
   });
   const arraste: ArrasteProps = {
     setNodeRef,
-    style: { transform: CSS.Transform.toString(transform), transition },
+    style: { transform: emArraste ? undefined : CSS.Transform.toString(transform), transition },
     attributes,
     listeners,
     isDragging,
   };
-  return <CardPagamentoInstancia {...props} arraste={arraste} />;
+  return <CardPagamentoInstancia {...resto} arraste={arraste} />;
 }
 
 function CardPagamentoInstancia({

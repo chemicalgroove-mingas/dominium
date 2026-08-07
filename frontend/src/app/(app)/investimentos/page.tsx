@@ -13,6 +13,7 @@ import { CampoPrazoMeses } from "@/components/dominium/CampoPrazoMeses";
 import { SyncStatusBadge } from "@/components/dominium/SyncStatusBadge";
 import { AlcaArrastar } from "@/components/dominium/AlcaArrastar";
 import { ItemArrastavel } from "@/components/dominium/ItemArrastavel";
+import { ColunasMasonry } from "@/components/dominium/ColunasMasonry";
 import { Toast } from "@/components/dominium/Toast";
 import { useOrdenacaoArrastavel } from "@/hooks/useOrdenacaoArrastavel";
 import { formatarDataHora, formatarMoeda } from "@/lib/format";
@@ -155,8 +156,11 @@ export default function InvestimentosPage() {
     collisionDetection,
     measuring,
     onDragStart,
+    onDragMove,
     onDragEnd,
     onDragCancel,
+    emArraste,
+    indiceInsercao,
     itemAtivo,
     erro: erroOrdenacao,
     limparErro: limparErroOrdenacao,
@@ -368,32 +372,37 @@ export default function InvestimentosPage() {
             collisionDetection={collisionDetection}
             measuring={measuring}
             onDragStart={onDragStart}
+            onDragMove={onDragMove}
             onDragEnd={onDragEnd}
             onDragCancel={onDragCancel}
           >
             <SortableContext items={contas.map((c) => c.id)} strategy={rectSortingStrategy}>
-              <div className="mb-4 grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
-                {contas.map((conta) => (
-                  <ItemArrastavel key={conta.id} id={conta.id}>
-                    {(arraste) => (
-                      <CardContaInvestimento
-                        conta={conta}
-                        setModalProjeto={setModalProjeto}
-                        setContaParaExcluir={setContaParaExcluir}
-                        setModalLancarValor={setModalLancarValor}
-                        abrirFoco={abrirFoco}
-                        abrirEdicaoValor={abrirEdicaoValor}
-                        excluirAporte={excluirAporte}
-                        excluirResgate={excluirResgate}
-                        excluirValorExtra={excluirValorExtra}
-                        setModalResgate={setModalResgate}
-                        setModalAtualizarValor={setModalAtualizarValor}
-                        setModalOpcoes={setModalOpcoes}
-                        arraste={arraste}
-                      />
-                    )}
-                  </ItemArrastavel>
-                ))}
+              <div className="mb-4">
+                <ColunasMasonry
+                  itens={contas}
+                  indiceInsercao={indiceInsercao}
+                  renderItem={(conta) => (
+                    <ItemArrastavel key={conta.id} id={conta.id} emArraste={emArraste}>
+                      {(arraste) => (
+                        <CardContaInvestimento
+                          conta={conta}
+                          setModalProjeto={setModalProjeto}
+                          setContaParaExcluir={setContaParaExcluir}
+                          setModalLancarValor={setModalLancarValor}
+                          abrirFoco={abrirFoco}
+                          abrirEdicaoValor={abrirEdicaoValor}
+                          excluirAporte={excluirAporte}
+                          excluirResgate={excluirResgate}
+                          excluirValorExtra={excluirValorExtra}
+                          setModalResgate={setModalResgate}
+                          setModalAtualizarValor={setModalAtualizarValor}
+                          setModalOpcoes={setModalOpcoes}
+                          arraste={arraste}
+                        />
+                      )}
+                    </ItemArrastavel>
+                  )}
+                />
               </div>
             </SortableContext>
             <DragOverlay>

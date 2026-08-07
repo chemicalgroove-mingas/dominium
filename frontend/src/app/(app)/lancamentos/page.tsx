@@ -18,6 +18,7 @@ import { CampoMes } from "@/components/dominium/CampoMes";
 import { CampoPrazoMeses } from "@/components/dominium/CampoPrazoMeses";
 import { SeletorMesReferencia } from "@/components/dominium/SeletorMesReferencia";
 import { AlcaArrastar } from "@/components/dominium/AlcaArrastar";
+import { ColunasMasonry } from "@/components/dominium/ColunasMasonry";
 import { Toast } from "@/components/dominium/Toast";
 import { formatarMoeda } from "@/lib/format";
 import { descricaoAutomatica, inserirDataDeHoje } from "@/lib/descricaoLancamento";
@@ -121,8 +122,11 @@ export default function LancamentosPage() {
     collisionDetection,
     measuring,
     onDragStart,
+    onDragMove,
     onDragEnd,
     onDragCancel,
+    emArraste,
+    indiceInsercao,
     itemAtivo,
     erro: erroOrdenacao,
     limparErro: limparErroOrdenacao,
@@ -450,26 +454,32 @@ export default function LancamentosPage() {
             collisionDetection={collisionDetection}
             measuring={measuring}
             onDragStart={onDragStart}
+            onDragMove={onDragMove}
             onDragEnd={onDragEnd}
             onDragCancel={onDragCancel}
           >
             <SortableContext items={instanciasDoGrupo.map((i) => i.id)} strategy={rectSortingStrategy}>
-              <div className="mb-4 grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
-                {instanciasDoGrupo.map((i) => (
-                  <GavetaCardOrdenavel
-                    key={i.id}
-                    instancia={i}
-                    dados={gavetas[i.id]}
-                    mesReferencia={mesReferencia}
-                    janela={janela}
-                    labelLancar={LABEL_LANCAR[grupo]}
-                    onLancar={() => abrirFoco(i)}
-                    onEditarInstancia={() => setInstanciaEditando({ id: i.id, nome: i.nome, cor: i.cor })}
-                    onExcluirInstancia={() => setInstanciaParaExcluir(i)}
-                    onEditarLancamento={(l) => abrirEdicaoLancamento(i, l)}
-                    onExcluirLancamento={excluirLancamento}
-                  />
-                ))}
+              <div className="mb-4">
+                <ColunasMasonry
+                  itens={instanciasDoGrupo}
+                  indiceInsercao={indiceInsercao}
+                  renderItem={(i) => (
+                    <GavetaCardOrdenavel
+                      key={i.id}
+                      instancia={i}
+                      dados={gavetas[i.id]}
+                      mesReferencia={mesReferencia}
+                      janela={janela}
+                      labelLancar={LABEL_LANCAR[grupo]}
+                      onLancar={() => abrirFoco(i)}
+                      onEditarInstancia={() => setInstanciaEditando({ id: i.id, nome: i.nome, cor: i.cor })}
+                      onExcluirInstancia={() => setInstanciaParaExcluir(i)}
+                      onEditarLancamento={(l) => abrirEdicaoLancamento(i, l)}
+                      onExcluirLancamento={excluirLancamento}
+                      emArraste={emArraste}
+                    />
+                  )}
+                />
               </div>
             </SortableContext>
             <DragOverlay>
@@ -837,19 +847,29 @@ type ArrasteProps = {
 // Wrapper que só existe pra chamar useSortable — GavetaCard também é usado
 // fora de um SortableContext (a versão sticky do estado "foco", um card
 // único, não arrastável), então o hook não pode viver dentro dele.
-function GavetaCardOrdenavel(props: Omit<React.ComponentProps<typeof GavetaCard>, "arraste">) {
+//
+// `emArraste` (true enquanto QUALQUER card estiver sendo arrastado, vindo
+// de useOrdenacaoArrastavel) suprime o transform aqui — é isso que faz os
+// cards de fundo ficarem parados durante o arraste. Assim que o drag
+// termina e a sequência muda, `emArraste` volta a false e o transform do
+// dnd-kit (agora o delta do FLIP pós-reorder, não mais o preview ao vivo)
+// volta a ser aplicado, dando o reflow único e firme só ao soltar.
+function GavetaCardOrdenavel(
+  props: Omit<React.ComponentProps<typeof GavetaCard>, "arraste"> & { emArraste: boolean }
+) {
+  const { emArraste, ...resto } = props;
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: props.instancia.id,
     transition: TRANSICAO_FIRME,
   });
   const arraste: ArrasteProps = {
     setNodeRef,
-    style: { transform: CSS.Transform.toString(transform), transition },
+    style: { transform: emArraste ? undefined : CSS.Transform.toString(transform), transition },
     attributes,
     listeners,
     isDragging,
   };
-  return <GavetaCard {...props} arraste={arraste} />;
+  return <GavetaCard {...resto} arraste={arraste} />;
 }
 
 function GavetaCard({
