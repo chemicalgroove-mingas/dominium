@@ -130,7 +130,7 @@ export default function LancamentosPage() {
     itemAtivo,
     erro: erroOrdenacao,
     limparErro: limparErroOrdenacao,
-  } = useOrdenacaoArrastavel(contextoOrdenacao, instanciasDoGrupo, setInstanciasDoGrupo);
+  } = useOrdenacaoArrastavel(contextoOrdenacao, instanciasDoGrupo, setInstanciasDoGrupo, { colunas: 2 });
 
   const carregarResumo = useCallback(async () => {
     try {

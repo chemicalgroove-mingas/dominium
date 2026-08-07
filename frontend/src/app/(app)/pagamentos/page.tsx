@@ -158,7 +158,7 @@ export default function PagamentosPage() {
     itemAtivo,
     erro: erroOrdenacao,
     limparErro,
-  } = useOrdenacaoArrastavel("pagamentos", instanciasVisiveis, setInstanciasVisiveis);
+  } = useOrdenacaoArrastavel("pagamentos", instanciasVisiveis, setInstanciasVisiveis, { colunas: 1 });
 
   async function reverterPagamento(lancamentoId: string) {
     if (

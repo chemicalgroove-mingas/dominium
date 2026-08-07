@@ -164,7 +164,7 @@ export default function InvestimentosPage() {
     itemAtivo,
     erro: erroOrdenacao,
     limparErro: limparErroOrdenacao,
-  } = useOrdenacaoArrastavel("reserva", contas, setContas);
+  } = useOrdenacaoArrastavel("reserva", contas, setContas, { colunas: 2 });
 
   function abrirFoco(conta: ContaInvestimento) {
     setContaFoco(conta);

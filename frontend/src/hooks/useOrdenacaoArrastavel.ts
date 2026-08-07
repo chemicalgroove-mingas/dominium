@@ -42,8 +42,13 @@ export const MEDICAO_ESTAVEL: MeasuringConfiguration = {
 export function useOrdenacaoArrastavel<T extends { id: string }>(
   contexto: string,
   itens: T[],
-  setItens: (itens: T[]) => void
+  setItens: (itens: T[]) => void,
+  // colunas=2: tela usa masonry (ColunasMasonry) — precisa da regra especial
+  // de fronteira abaixo. colunas=1: lista única (Pagamentos), sem
+  // ambiguidade de coluna, mantém a conversão padrão pra todo índice.
+  opcoes: { colunas?: 1 | 2 } = {}
 ) {
+  const colunas = opcoes.colunas ?? 2;
   const [erro, setErro] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [indiceInsercao, setIndiceInsercao] = useState<number | null>(null);
@@ -121,8 +126,18 @@ export function useOrdenacaoArrastavel<T extends { id: string }>(
       if (oldIndex === -1) return;
 
       // Remover o item do índice antigo desloca os que vêm depois — se o
-      // destino é depois da posição original, compensa em 1.
-      let newIndex = indiceDestino > oldIndex ? indiceDestino - 1 : indiceDestino;
+      // destino é depois da posição original, compensa em 1. EXCEÇÃO: no
+      // masonry de 2 colunas, o índice exato `meio` (fim da esquerda / topo
+      // da direita — o mesmo número serve pras duas leituras) é ambíguo. A
+      // barra guia nesse índice sempre visualmente representa "topo da
+      // direita" (ver ColunasMasonry — só a coluna direita desenha esse
+      // índice). Pra o card realmente cair lá — e não no fim da esquerda,
+      // que é onde o desconto padrão o levaria quando vem de antes da
+      // fronteira — usamos o índice puro (sem desconto) nesse caso
+      // específico, para QUALQUER direção de arraste.
+      const meio = Math.ceil(anterior.length / 2);
+      const naFronteira = colunas === 2 && indiceDestino === meio;
+      let newIndex = naFronteira || indiceDestino <= oldIndex ? indiceDestino : indiceDestino - 1;
       newIndex = Math.max(0, Math.min(anterior.length - 1, newIndex));
       if (newIndex === oldIndex) return;
 
@@ -139,7 +154,7 @@ export function useOrdenacaoArrastavel<T extends { id: string }>(
           setErro("Não foi possível salvar a nova ordem. Tente novamente.");
         });
     },
-    [contexto, itens, setItens]
+    [contexto, itens, setItens, colunas]
   );
 
   const onDragCancel = useCallback(() => {

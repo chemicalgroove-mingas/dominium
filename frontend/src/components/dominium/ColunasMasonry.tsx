@@ -26,7 +26,15 @@ export function ColunasMasonry<T extends { id: string }>({
   const esquerda = itens.slice(0, meio);
   const direita = itens.slice(meio);
 
-  function coluna(lista: T[], offset: number) {
+  // `mostrarBarraFinal` só é true pra última coluna (direita): o índice
+  // `meio` (fim da esquerda == topo da direita) é o mesmo número nas duas
+  // checagens — sem essa flag, as duas colunas desenhariam uma barra ao
+  // mesmo tempo pro mesmo `indiceInsercao`. A fronteira sempre resolve pro
+  // topo da direita (só a checagem "antes do primeiro item" de `coluna`
+  // cobre isso); a checagem de "depois do último item" só faz sentido pra
+  // coluna final (inserir no fim de tudo). Ver useOrdenacaoArrastavel —
+  // essa mesma fronteira usa a MESMA convenção do lado do onDragEnd.
+  function coluna(lista: T[], offset: number, mostrarBarraFinal: boolean) {
     const nos: ReactElement[] = [];
     lista.forEach((item, i) => {
       const indiceGlobal = offset + i;
@@ -35,7 +43,7 @@ export function ColunasMasonry<T extends { id: string }>({
       }
       nos.push(renderItem(item));
     });
-    if (indiceInsercao === offset + lista.length) {
+    if (mostrarBarraFinal && indiceInsercao === offset + lista.length) {
       nos.push(<BarraGuiaArraste key={`guia-${offset + lista.length}`} />);
     }
     return nos;
@@ -43,8 +51,8 @@ export function ColunasMasonry<T extends { id: string }>({
 
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:items-start">
-      <div className="flex flex-col gap-4">{coluna(esquerda, 0)}</div>
-      <div className="flex flex-col gap-4">{coluna(direita, meio)}</div>
+      <div className="flex flex-col gap-4">{coluna(esquerda, 0, false)}</div>
+      <div className="flex flex-col gap-4">{coluna(direita, meio, true)}</div>
     </div>
   );
 }
