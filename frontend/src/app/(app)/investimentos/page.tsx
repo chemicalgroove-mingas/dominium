@@ -2,6 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Check, Clock, Palette, Pencil, Plus, Trash2, X } from "lucide-react";
+import { DndContext, DragOverlay } from "@dnd-kit/core";
+import { SortableContext, useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useInstancias } from "@/contexts/InstanciasContext";
@@ -9,6 +12,10 @@ import { CampoMoeda } from "@/components/dominium/CampoMoeda";
 import { CampoMes } from "@/components/dominium/CampoMes";
 import { CampoPrazoMeses } from "@/components/dominium/CampoPrazoMeses";
 import { SyncStatusBadge } from "@/components/dominium/SyncStatusBadge";
+import { AlcaArrastar } from "@/components/dominium/AlcaArrastar";
+import { ListaOrdenavel } from "@/components/dominium/ListaOrdenavel";
+import { Toast } from "@/components/dominium/Toast";
+import { useOrdenacaoDuasColunas, TRANSICAO_FIRME } from "@/hooks/useOrdenacaoDuasColunas";
 import { formatarDataHora, formatarMoeda } from "@/lib/format";
 import { diferencaEmMeses, formatarMesLabel, mesAtual, somarMeses } from "@/lib/mes";
 import { centavosParaNumero, numeroParaCentavos } from "@/lib/moeda";
@@ -143,6 +150,24 @@ export default function InvestimentosPage() {
   }, [pendentesUsuario.length, carregar]);
 
   const patrimonioTotal = useMemo(() => contas.reduce((acc, c) => acc + c.patrimonio, 0), [contas]);
+
+  const {
+    mobile,
+    listas,
+    sensors,
+    collisionDetection,
+    measuring,
+    onDragStart,
+    onDragMove,
+    onDragEnd,
+    onDragCancel,
+    activeId,
+    emArraste,
+    posicaoInsercao,
+    itemAtivo,
+    erro: erroOrdenacao,
+    limparErro: limparErroOrdenacao,
+  } = useOrdenacaoDuasColunas("reserva", contas, setContas);
 
   function abrirFoco(conta: ContaInvestimento) {
     setContaFoco(conta);
@@ -345,101 +370,68 @@ export default function InvestimentosPage() {
 
       {estado === "geral" && (
         <>
-          <div className="mb-4 grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
-            {contas.map((conta) => (
-              <div key={conta.id} className="card-dominium p-4">
-                <div className="mb-1 flex items-center gap-2">
-                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: conta.cor }} />
-                  <p className="min-w-0 flex-1 truncate text-sm font-medium" style={{ color: conta.cor }}>
-                    {conta.nome}
-                  </p>
-                  {conta.metaBatida && (
-                    <span className="flex items-center gap-1 rounded-full bg-success/10 px-2 py-0.5 text-[10px] font-medium text-success">
-                      <Check size={11} /> Meta batida
-                    </span>
-                  )}
-                  <button
-                    onClick={() => setModalProjeto({ modo: "editar", conta, aporte: conta.aportes[0] || null })}
-                    className="p-1 text-cream-100/40 hover:text-gold-300"
-                    aria-label="Editar projeto"
-                  >
-                    <Pencil size={14} />
-                  </button>
-                  <button
-                    onClick={() => setContaParaExcluir(conta)}
-                    className="p-1 text-cream-100/40 hover:text-danger"
-                    aria-label="Excluir conta"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <div>
-                    <p className="tabular text-lg font-semibold text-cream-100">
-                      {formatarMoeda(conta.patrimonio)}{" "}
-                      <span className="text-xs font-normal text-cream-100/50">
-                        · {conta.aportes.length} valor{conta.aportes.length === 1 ? "" : "es"}
-                      </span>
-                    </p>
-                    {(() => {
-                      const metaValor = conta.aportes.find((a) => a.valorMeta != null)?.valorMeta;
-                      return (
-                        metaValor != null && (
-                          <p className="tabular text-sm text-cream-100/50">Meta: {formatarMoeda(metaValor)}</p>
-                        )
-                      );
-                    })()}
-                  </div>
-                  <button
-                    onClick={() => {
-                      const aporteMeta = conta.aportes.find((a) => a.valorMeta != null);
-                      if (aporteMeta) {
-                        setModalLancarValor({ conta, aporteMeta });
-                      } else {
-                        abrirFoco(conta);
-                      }
-                    }}
-                    className="shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium"
-                    style={{ borderColor: conta.cor, color: conta.cor }}
-                  >
-                    Lançar Valor Extra
-                  </button>
-                </div>
-
-                <ListaValores
-                  conta={conta}
-                  onEditarValor={(a) => abrirEdicaoValor(conta, a)}
-                  onExcluirValor={excluirAporte}
-                  onExcluirResgate={excluirResgate}
-                  onExcluirValorExtra={excluirValorExtra}
-                />
-
-                <div className="mt-3 flex flex-wrap gap-2 border-t border-navy-700 pt-3">
-                  <button
-                    onClick={() => setModalResgate(conta)}
-                    className="rounded-xl border border-danger px-3 py-2 text-xs text-danger"
-                  >
-                    Resgatar
-                  </button>
-                  <button
-                    onClick={() => setModalAtualizarValor(conta)}
-                    className="rounded-xl border border-navy-700 px-3 py-2 text-xs text-cream-100/70"
-                  >
-                    Atualizar Valor
-                  </button>
-                  {conta.metaBatida && (
-                    <button
-                      onClick={() => setModalOpcoes(conta)}
-                      className="rounded-xl border border-gold-500 px-3 py-2 text-xs text-gold-300"
-                    >
-                      Ver Opções
-                    </button>
-                  )}
-                </div>
+          <DndContext
+            sensors={sensors}
+            collisionDetection={collisionDetection}
+            measuring={measuring}
+            onDragStart={onDragStart}
+            onDragMove={onDragMove}
+            onDragEnd={onDragEnd}
+            onDragCancel={onDragCancel}
+          >
+            <SortableContext items={contas.map((c) => c.id)}>
+              <div className={`mb-4 ${mobile ? "" : "grid grid-cols-2 items-start gap-4"}`}>
+                {listas.map((lista, listaIndex) => (
+                  <ListaOrdenavel
+                    key={listaIndex}
+                    itens={lista}
+                    listaIndex={listaIndex}
+                    posicaoInsercao={posicaoInsercao}
+                    idAtivo={activeId}
+                    renderItem={(conta) => (
+                      <CardContaInvestimentoOrdenavel
+                        key={conta.id}
+                        conta={conta}
+                        setModalProjeto={setModalProjeto}
+                        setContaParaExcluir={setContaParaExcluir}
+                        setModalLancarValor={setModalLancarValor}
+                        abrirFoco={abrirFoco}
+                        abrirEdicaoValor={abrirEdicaoValor}
+                        excluirAporte={excluirAporte}
+                        excluirResgate={excluirResgate}
+                        excluirValorExtra={excluirValorExtra}
+                        setModalResgate={setModalResgate}
+                        setModalAtualizarValor={setModalAtualizarValor}
+                        setModalOpcoes={setModalOpcoes}
+                        emArraste={emArraste}
+                      />
+                    )}
+                  />
+                ))}
               </div>
-            ))}
-          </div>
+            </SortableContext>
+            <DragOverlay>
+              {itemAtivo && (
+                <CardContaInvestimento
+                  conta={itemAtivo}
+                  setModalProjeto={() => {}}
+                  setContaParaExcluir={() => {}}
+                  setModalLancarValor={() => {}}
+                  abrirFoco={() => {}}
+                  abrirEdicaoValor={() => {}}
+                  excluirAporte={() => {}}
+                  excluirResgate={() => {}}
+                  excluirValorExtra={() => {}}
+                  setModalResgate={() => {}}
+                  setModalAtualizarValor={() => {}}
+                  setModalOpcoes={() => {}}
+                  solido
+                />
+              )}
+            </DragOverlay>
+          </DndContext>
+
+          {erroOrdenacao && <Toast mensagem={erroOrdenacao} tipo="erro" onFechar={limparErroOrdenacao} />}
 
           {!carregando && !semDadosOffline && contas.length === 0 && (
             <div className="card-dominium mb-4 p-6 text-center text-sm text-cream-100/70">
@@ -572,7 +564,7 @@ export default function InvestimentosPage() {
                 {formatarMoeda(contas.find((c) => c.id === contaFoco.id)?.patrimonio ?? contaFoco.patrimonio)}
               </p>
 
-              <div className="lg:max-h-[calc(100vh-14rem)] lg:overflow-y-auto lg:pr-1">
+              <div>
                 <ListaValores
                   conta={contas.find((c) => c.id === contaFoco.id) || contaFoco}
                   onEditarValor={(a) => abrirEdicaoValor(contaFoco, a)}
@@ -709,6 +701,170 @@ export default function InvestimentosPage() {
           }}
         />
       )}
+    </div>
+  );
+}
+
+type ArrasteProps = {
+  setNodeRef: (node: HTMLElement | null) => void;
+  style: React.CSSProperties;
+  attributes: ReturnType<typeof useSortable>["attributes"];
+  listeners: ReturnType<typeof useSortable>["listeners"];
+  isDragging: boolean;
+};
+
+// Wrapper que só existe pra chamar useSortable — a cópia sólida dentro do
+// <DragOverlay> usa o componente presentacional direto, sem passar por
+// aqui (senão duplicaria o id no SortableContext). `emArraste` suprime o
+// transform enquanto QUALQUER card estiver sendo arrastado — os cards de
+// fundo ficam parados, só a barra guia se move.
+function CardContaInvestimentoOrdenavel(
+  props: Omit<React.ComponentProps<typeof CardContaInvestimento>, "arraste"> & { emArraste: boolean }
+) {
+  const { emArraste, ...resto } = props;
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: props.conta.id,
+    transition: TRANSICAO_FIRME,
+  });
+  const arraste: ArrasteProps = {
+    setNodeRef,
+    style: { transform: emArraste ? undefined : CSS.Transform.toString(transform), transition },
+    attributes,
+    listeners,
+    isDragging,
+  };
+  return <CardContaInvestimento {...resto} arraste={arraste} />;
+}
+
+function CardContaInvestimento({
+  conta,
+  setModalProjeto,
+  setContaParaExcluir,
+  setModalLancarValor,
+  abrirFoco,
+  abrirEdicaoValor,
+  excluirAporte,
+  excluirResgate,
+  excluirValorExtra,
+  setModalResgate,
+  setModalAtualizarValor,
+  setModalOpcoes,
+  arraste,
+  solido,
+}: {
+  conta: ContaInvestimento;
+  setModalProjeto: (v: { modo: "editar"; conta: ContaInvestimento; aporte: Aporte | null }) => void;
+  setContaParaExcluir: (conta: ContaInvestimento) => void;
+  setModalLancarValor: (v: { conta: ContaInvestimento; aporteMeta: Aporte }) => void;
+  abrirFoco: (conta: ContaInvestimento) => void;
+  abrirEdicaoValor: (conta: ContaInvestimento, aporte: Aporte) => void;
+  excluirAporte: (id: string) => void;
+  excluirResgate: (id: string) => void;
+  excluirValorExtra: (id: string) => void;
+  setModalResgate: (conta: ContaInvestimento) => void;
+  setModalAtualizarValor: (conta: ContaInvestimento) => void;
+  setModalOpcoes: (conta: ContaInvestimento) => void;
+  arraste?: ArrasteProps;
+  solido?: boolean;
+}) {
+  return (
+    <div
+      ref={arraste?.setNodeRef}
+      style={arraste?.style}
+      className={`card-dominium p-4 ${
+        solido ? "shadow-2xl shadow-black/50" : arraste?.isDragging ? "opacity-30" : ""
+      }`}
+    >
+      <div className="mb-1 flex items-center gap-2">
+        {arraste && <AlcaArrastar attributes={arraste.attributes} listeners={arraste.listeners} />}
+        <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: conta.cor }} />
+        <p className="min-w-0 flex-1 truncate text-sm font-medium" style={{ color: conta.cor }}>
+          {conta.nome}
+        </p>
+        {conta.metaBatida && (
+          <span className="flex items-center gap-1 rounded-full bg-success/10 px-2 py-0.5 text-[10px] font-medium text-success">
+            <Check size={11} /> Meta batida
+          </span>
+        )}
+        <button
+          onClick={() => setModalProjeto({ modo: "editar", conta, aporte: conta.aportes[0] || null })}
+          className="p-1 text-cream-100/40 hover:text-gold-300"
+          aria-label="Editar projeto"
+        >
+          <Pencil size={14} />
+        </button>
+        <button
+          onClick={() => setContaParaExcluir(conta)}
+          className="p-1 text-cream-100/40 hover:text-danger"
+          aria-label="Excluir conta"
+        >
+          <Trash2 size={14} />
+        </button>
+      </div>
+
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <p className="tabular text-lg font-semibold text-cream-100">
+            {formatarMoeda(conta.patrimonio)}{" "}
+            <span className="text-xs font-normal text-cream-100/50">
+              · {conta.aportes.length} valor{conta.aportes.length === 1 ? "" : "es"}
+            </span>
+          </p>
+          {(() => {
+            const metaValor = conta.aportes.find((a) => a.valorMeta != null)?.valorMeta;
+            return (
+              metaValor != null && (
+                <p className="tabular text-sm text-cream-100/50">Meta: {formatarMoeda(metaValor)}</p>
+              )
+            );
+          })()}
+        </div>
+        <button
+          onClick={() => {
+            const aporteMeta = conta.aportes.find((a) => a.valorMeta != null);
+            if (aporteMeta) {
+              setModalLancarValor({ conta, aporteMeta });
+            } else {
+              abrirFoco(conta);
+            }
+          }}
+          className="shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium"
+          style={{ borderColor: conta.cor, color: conta.cor }}
+        >
+          Lançar Valor Extra
+        </button>
+      </div>
+
+      <ListaValores
+        conta={conta}
+        onEditarValor={(a) => abrirEdicaoValor(conta, a)}
+        onExcluirValor={excluirAporte}
+        onExcluirResgate={excluirResgate}
+        onExcluirValorExtra={excluirValorExtra}
+      />
+
+      <div className="mt-3 flex flex-wrap gap-2 border-t border-navy-700 pt-3">
+        <button
+          onClick={() => setModalResgate(conta)}
+          className="rounded-xl border border-danger px-3 py-2 text-xs text-danger"
+        >
+          Resgatar
+        </button>
+        <button
+          onClick={() => setModalAtualizarValor(conta)}
+          className="rounded-xl border border-navy-700 px-3 py-2 text-xs text-cream-100/70"
+        >
+          Atualizar Valor
+        </button>
+        {conta.metaBatida && (
+          <button
+            onClick={() => setModalOpcoes(conta)}
+            className="rounded-xl border border-gold-500 px-3 py-2 text-xs text-gold-300"
+          >
+            Ver Opções
+          </button>
+        )}
+      </div>
     </div>
   );
 }

@@ -1,13 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, Check, Undo2 } from "lucide-react";
+import { DndContext, DragOverlay } from "@dnd-kit/core";
+import { SortableContext, useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { api, ApiError } from "@/lib/api";
 import { formatarDataHora, formatarMoeda } from "@/lib/format";
 import { formatarMesInline, formatarMesLabel, mesAtual, somarMeses } from "@/lib/mes";
 import { centavosParaNumero, numeroParaCentavos } from "@/lib/moeda";
 import { CampoMoeda } from "@/components/dominium/CampoMoeda";
+import { AlcaArrastar } from "@/components/dominium/AlcaArrastar";
+import { ListaOrdenavel } from "@/components/dominium/ListaOrdenavel";
+import { Toast } from "@/components/dominium/Toast";
 import { useAuth } from "@/contexts/AuthContext";
+import { useOrdenacaoDuasColunas, TRANSICAO_FIRME } from "@/hooks/useOrdenacaoDuasColunas";
 import { lerSnapshot, salvarSnapshot } from "@/lib/offline/snapshots";
 import type { InstanciaEmAberto } from "@/lib/types";
 
@@ -73,6 +80,40 @@ export default function PagamentosPage() {
     setInstanciaSelecionando(null);
     setSelecionados([]);
   }, [carregar]);
+
+  const instanciasVisiveis = useMemo(
+    () => dados?.instancias.filter((i) => i.itens.length > 0) ?? [],
+    [dados]
+  );
+
+  // Reposiciona só as instâncias visíveis (com item em aberto) dentro de
+  // `dados.instancias`, preservando a posição das demais.
+  const setInstanciasVisiveis = useCallback((novaOrdem: InstanciaEmAberto[]) => {
+    setDados((prev) => {
+      if (!prev) return prev;
+      const idsSet = new Set(novaOrdem.map((i) => i.id));
+      let cursor = 0;
+      return { ...prev, instancias: prev.instancias.map((i) => (idsSet.has(i.id) ? novaOrdem[cursor++] : i)) };
+    });
+  }, []);
+
+  const {
+    mobile,
+    listas,
+    sensors,
+    collisionDetection,
+    measuring,
+    onDragStart,
+    onDragMove,
+    onDragEnd,
+    onDragCancel,
+    activeId,
+    emArraste,
+    posicaoInsercao,
+    itemAtivo,
+    erro: erroOrdenacao,
+    limparErro,
+  } = useOrdenacaoDuasColunas("pagamentos", instanciasVisiveis, setInstanciasVisiveis);
 
   async function pagarTotal(instanciaId: string, confirmarDuplicado = false) {
     setErroAcao("");
@@ -191,99 +232,66 @@ export default function PagamentosPage() {
         </div>
       )}
 
-      <div className="flex flex-col gap-4">
-        {dados?.instancias
-          .filter((i) => i.itens.length > 0)
-          .map((instancia) => (
-            <div key={instancia.id} className="card-dominium p-4">
-              <div className="mb-3 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="h-3 w-3 rounded-full" style={{ background: instancia.cor }} />
-                  <span className="text-sm font-medium text-cream-100">
-                    {instancia.nome}
-                    <span className="font-normal text-cream-100/50"> ({formatarMesInline(mesReferencia)})</span>
-                  </span>
-                </div>
-                <span className="tabular text-sm font-semibold text-cream-100">
-                  {formatarMoeda(instancia.totalAberto)}
-                </span>
-              </div>
-
-              <div className="mb-3 flex flex-col gap-1">
-                {instancia.itens.map((item) =>
-                  item.pago ? (
-                    <div key={item.lancamentoId} className="flex items-center gap-2 text-sm">
-                      <Check size={14} className="shrink-0 text-success" />
-                      <span className="flex-1 truncate text-cream-100/50 line-through">{item.descricao}</span>
-                      <span className="tabular text-cream-100/40">{formatarMoeda(item.valorPago ?? item.valor)}</span>
-                      <button
-                        onClick={() => reverterPagamento(item.lancamentoId)}
-                        className="flex items-center gap-1 text-xs text-cream-100/50 hover:text-danger"
-                      >
-                        <Undo2 size={12} /> Reverter
-                      </button>
-                    </div>
-                  ) : (
-                    <div key={item.lancamentoId} className="flex items-center gap-2 text-sm">
-                      {instanciaSelecionando === instancia.id && (
-                        <input
-                          type="checkbox"
-                          checked={selecionados.includes(item.lancamentoId)}
-                          onChange={() => toggleSelecionado(item.lancamentoId)}
-                          className="h-4 w-4"
-                        />
-                      )}
-                      <span className="flex-1 truncate text-cream-100/80">{item.descricao}</span>
-                      <span className="tabular text-cream-100/70">{formatarMoeda(item.valor)}</span>
-                    </div>
-                  )
+      <DndContext
+        sensors={sensors}
+        collisionDetection={collisionDetection}
+        measuring={measuring}
+        onDragStart={onDragStart}
+        onDragMove={onDragMove}
+        onDragEnd={onDragEnd}
+        onDragCancel={onDragCancel}
+      >
+        <SortableContext items={instanciasVisiveis.map((i) => i.id)}>
+          <div className={mobile ? "" : "grid grid-cols-2 items-start gap-4"}>
+            {listas.map((lista, listaIndex) => (
+              <ListaOrdenavel
+                key={listaIndex}
+                itens={lista}
+                listaIndex={listaIndex}
+                posicaoInsercao={posicaoInsercao}
+                idAtivo={activeId}
+                renderItem={(instancia) => (
+                  <CardPagamentoInstanciaOrdenavel
+                    key={instancia.id}
+                    instancia={instancia}
+                    mesReferencia={mesReferencia}
+                    instanciaSelecionando={instanciaSelecionando}
+                    selecionados={selecionados}
+                    toggleSelecionado={toggleSelecionado}
+                    setInstanciaSelecionando={setInstanciaSelecionando}
+                    setSelecionados={setSelecionados}
+                    pagarTotal={pagarTotal}
+                    pagarSelecionados={pagarSelecionados}
+                    reverterPagamento={reverterPagamento}
+                    onOutroValor={() => setOutroValor(instancia)}
+                    emArraste={emArraste}
+                  />
                 )}
-              </div>
+              />
+            ))}
+          </div>
+        </SortableContext>
+        <DragOverlay>
+          {itemAtivo && (
+            <CardPagamentoInstancia
+              instancia={itemAtivo}
+              mesReferencia={mesReferencia}
+              instanciaSelecionando={null}
+              selecionados={[]}
+              toggleSelecionado={() => {}}
+              setInstanciaSelecionando={() => {}}
+              setSelecionados={() => {}}
+              pagarTotal={() => {}}
+              pagarSelecionados={() => {}}
+              reverterPagamento={() => {}}
+              onOutroValor={() => {}}
+              solido
+            />
+          )}
+        </DragOverlay>
+      </DndContext>
 
-              {instancia.totalAberto <= 0 ? (
-                <p className="flex items-center justify-center gap-1 rounded-xl border border-success/30 py-2 text-sm text-success">
-                  <Check size={14} /> Tudo pago nesta referência
-                </p>
-              ) : (
-                <>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => pagarTotal(instancia.id)}
-                      className="btn-gold flex-1 py-2 text-sm"
-                    >
-                      Pagar Total
-                    </button>
-                    {instanciaSelecionando === instancia.id ? (
-                      <button
-                        onClick={() => pagarSelecionados(instancia.id)}
-                        disabled={selecionados.length === 0}
-                        className="flex-1 rounded-xl border border-gold-500 py-2 text-sm text-gold-300 disabled:opacity-40"
-                      >
-                        Pagar marcados ({selecionados.length})
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => {
-                          setInstanciaSelecionando(instancia.id);
-                          setSelecionados([]);
-                        }}
-                        className="flex-1 rounded-xl border border-navy-700 py-2 text-sm text-cream-100/70"
-                      >
-                        Selecionar
-                      </button>
-                    )}
-                  </div>
-                  <button
-                    onClick={() => setOutroValor(instancia)}
-                    className="mt-2 w-full text-center text-xs text-gold-300 hover:text-gold-500"
-                  >
-                    Outro valor
-                  </button>
-                </>
-              )}
-            </div>
-          ))}
-      </div>
+      {erroOrdenacao && <Toast mensagem={erroOrdenacao} tipo="erro" onFechar={limparErro} />}
 
       {outroValor && (
         <SubmodalOutroValor
@@ -295,6 +303,158 @@ export default function PagamentosPage() {
             await carregar();
           }}
         />
+      )}
+    </div>
+  );
+}
+
+type ArrasteProps = {
+  setNodeRef: (node: HTMLElement | null) => void;
+  style: React.CSSProperties;
+  attributes: ReturnType<typeof useSortable>["attributes"];
+  listeners: ReturnType<typeof useSortable>["listeners"];
+  isDragging: boolean;
+};
+
+// Wrapper que só existe pra chamar useSortable — a cópia sólida dentro do
+// <DragOverlay> usa o componente presentacional direto, sem passar por
+// aqui (senão duplicaria o id no SortableContext). `emArraste` suprime o
+// transform enquanto QUALQUER card estiver sendo arrastado — os cards de
+// fundo ficam parados, só a barra guia se move.
+function CardPagamentoInstanciaOrdenavel(
+  props: Omit<React.ComponentProps<typeof CardPagamentoInstancia>, "arraste"> & { emArraste: boolean }
+) {
+  const { emArraste, ...resto } = props;
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: props.instancia.id,
+    transition: TRANSICAO_FIRME,
+  });
+  const arraste: ArrasteProps = {
+    setNodeRef,
+    style: { transform: emArraste ? undefined : CSS.Transform.toString(transform), transition },
+    attributes,
+    listeners,
+    isDragging,
+  };
+  return <CardPagamentoInstancia {...resto} arraste={arraste} />;
+}
+
+function CardPagamentoInstancia({
+  instancia,
+  mesReferencia,
+  instanciaSelecionando,
+  selecionados,
+  toggleSelecionado,
+  setInstanciaSelecionando,
+  setSelecionados,
+  pagarTotal,
+  pagarSelecionados,
+  reverterPagamento,
+  onOutroValor,
+  arraste,
+  solido,
+}: {
+  instancia: InstanciaEmAberto;
+  mesReferencia: string;
+  instanciaSelecionando: string | null;
+  selecionados: string[];
+  toggleSelecionado: (id: string) => void;
+  setInstanciaSelecionando: (id: string | null) => void;
+  setSelecionados: (ids: string[]) => void;
+  pagarTotal: (instanciaId: string) => void;
+  pagarSelecionados: (instanciaId: string) => void;
+  reverterPagamento: (lancamentoId: string) => void;
+  onOutroValor: () => void;
+  arraste?: ArrasteProps;
+  solido?: boolean;
+}) {
+  return (
+    <div
+      ref={arraste?.setNodeRef}
+      style={arraste?.style}
+      className={`card-dominium p-4 ${
+        solido ? "shadow-2xl shadow-black/50" : arraste?.isDragging ? "opacity-30" : ""
+      }`}
+    >
+      <div className="mb-3 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          {arraste && <AlcaArrastar attributes={arraste.attributes} listeners={arraste.listeners} />}
+          <span className="h-3 w-3 rounded-full" style={{ background: instancia.cor }} />
+          <span className="text-sm font-medium text-cream-100">
+            {instancia.nome}
+            <span className="font-normal text-cream-100/50"> ({formatarMesInline(mesReferencia)})</span>
+          </span>
+        </div>
+        <span className="tabular text-sm font-semibold text-cream-100">
+          {formatarMoeda(instancia.totalAberto)}
+        </span>
+      </div>
+
+      <div className="mb-3 flex flex-col gap-1">
+        {instancia.itens.map((item) =>
+          item.pago ? (
+            <div key={item.lancamentoId} className="flex items-center gap-2 text-sm">
+              <Check size={14} className="shrink-0 text-success" />
+              <span className="flex-1 truncate text-cream-100/50 line-through">{item.descricao}</span>
+              <span className="tabular text-cream-100/40">{formatarMoeda(item.valorPago ?? item.valor)}</span>
+              <button
+                onClick={() => reverterPagamento(item.lancamentoId)}
+                className="flex items-center gap-1 text-xs text-cream-100/50 hover:text-danger"
+              >
+                <Undo2 size={12} /> Reverter
+              </button>
+            </div>
+          ) : (
+            <div key={item.lancamentoId} className="flex items-center gap-2 text-sm">
+              {instanciaSelecionando === instancia.id && (
+                <input
+                  type="checkbox"
+                  checked={selecionados.includes(item.lancamentoId)}
+                  onChange={() => toggleSelecionado(item.lancamentoId)}
+                  className="h-4 w-4"
+                />
+              )}
+              <span className="flex-1 truncate text-cream-100/80">{item.descricao}</span>
+              <span className="tabular text-cream-100/70">{formatarMoeda(item.valor)}</span>
+            </div>
+          )
+        )}
+      </div>
+
+      {instancia.totalAberto <= 0 ? (
+        <p className="flex items-center justify-center gap-1 rounded-xl border border-success/30 py-2 text-sm text-success">
+          <Check size={14} /> Tudo pago nesta referência
+        </p>
+      ) : (
+        <>
+          <div className="flex gap-2">
+            <button onClick={() => pagarTotal(instancia.id)} className="btn-gold flex-1 py-2 text-sm">
+              Pagar Total
+            </button>
+            {instanciaSelecionando === instancia.id ? (
+              <button
+                onClick={() => pagarSelecionados(instancia.id)}
+                disabled={selecionados.length === 0}
+                className="flex-1 rounded-xl border border-gold-500 py-2 text-sm text-gold-300 disabled:opacity-40"
+              >
+                Pagar marcados ({selecionados.length})
+              </button>
+            ) : (
+              <button
+                onClick={() => {
+                  setInstanciaSelecionando(instancia.id);
+                  setSelecionados([]);
+                }}
+                className="flex-1 rounded-xl border border-navy-700 py-2 text-sm text-cream-100/70"
+              >
+                Selecionar
+              </button>
+            )}
+          </div>
+          <button onClick={onOutroValor} className="mt-2 w-full text-center text-xs text-gold-300 hover:text-gold-500">
+            Outro valor
+          </button>
+        </>
       )}
     </div>
   );

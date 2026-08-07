@@ -2,10 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Clock, Pencil, Plus, Trash2 } from "lucide-react";
+import { DndContext, DragOverlay } from "@dnd-kit/core";
+import { SortableContext, useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useInstancias } from "@/contexts/InstanciasContext";
 import { useRecorte } from "@/contexts/RecorteContext";
+import { useOrdenacaoDuasColunas, TRANSICAO_FIRME } from "@/hooks/useOrdenacaoDuasColunas";
 import { JanelaSelector } from "@/components/dominium/JanelaSelector";
 import { ResumoDashboard } from "@/components/dominium/ResumoDashboard";
 import { SyncStatusBadge } from "@/components/dominium/SyncStatusBadge";
@@ -13,6 +17,9 @@ import { CampoMoeda } from "@/components/dominium/CampoMoeda";
 import { CampoMes } from "@/components/dominium/CampoMes";
 import { CampoPrazoMeses } from "@/components/dominium/CampoPrazoMeses";
 import { SeletorMesReferencia } from "@/components/dominium/SeletorMesReferencia";
+import { AlcaArrastar } from "@/components/dominium/AlcaArrastar";
+import { ListaOrdenavel } from "@/components/dominium/ListaOrdenavel";
+import { Toast } from "@/components/dominium/Toast";
 import { formatarMoeda } from "@/lib/format";
 import { descricaoAutomatica, inserirDataDeHoje } from "@/lib/descricaoLancamento";
 import { diferencaEmMeses, formatarMesInline, formatarMesLabel, somarMeses } from "@/lib/mes";
@@ -80,7 +87,7 @@ const LABEL_GRUPO_BOTAO: Record<Grupo, string> = {
 
 export default function LancamentosPage() {
   const { usuario } = useAuth();
-  const { instancias, recarregar } = useInstancias();
+  const { instancias, recarregar, reordenarSubconjunto } = useInstancias();
   const { janela, mesReferencia, setMesReferencia } = useRecorte();
   const pendentesUsuario = useOutboxPendentes(usuario?.id);
   const pendentesAnterioresRef = useRef(0);
@@ -104,6 +111,25 @@ export default function LancamentosPage() {
     () => instancias.filter((i) => i.grupo === grupo && i.ativa),
     [instancias, grupo]
   );
+
+  const contextoOrdenacao = grupo === "gasto" ? "lancamentos-gasto" : "lancamentos-receita";
+  const {
+    mobile,
+    listas,
+    sensors,
+    collisionDetection,
+    measuring,
+    onDragStart,
+    onDragMove,
+    onDragEnd,
+    onDragCancel,
+    activeId,
+    emArraste,
+    posicaoInsercao,
+    itemAtivo,
+    erro: erroOrdenacao,
+    limparErro: limparErroOrdenacao,
+  } = useOrdenacaoDuasColunas(contextoOrdenacao, instanciasDoGrupo, reordenarSubconjunto);
 
   const carregarResumo = useCallback(async () => {
     try {
@@ -422,23 +448,63 @@ export default function LancamentosPage() {
 
       {estado === "geral" && (
         <>
-          <div className="mb-4 grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
-            {instanciasDoGrupo.map((i) => (
-              <GavetaCard
-                key={i.id}
-                instancia={i}
-                dados={gavetas[i.id]}
-                mesReferencia={mesReferencia}
-                janela={janela}
-                labelLancar={LABEL_LANCAR[grupo]}
-                onLancar={() => abrirFoco(i)}
-                onEditarInstancia={() => setInstanciaEditando({ id: i.id, nome: i.nome, cor: i.cor })}
-                onExcluirInstancia={() => setInstanciaParaExcluir(i)}
-                onEditarLancamento={(l) => abrirEdicaoLancamento(i, l)}
-                onExcluirLancamento={excluirLancamento}
-              />
-            ))}
-          </div>
+          <DndContext
+            sensors={sensors}
+            collisionDetection={collisionDetection}
+            measuring={measuring}
+            onDragStart={onDragStart}
+            onDragMove={onDragMove}
+            onDragEnd={onDragEnd}
+            onDragCancel={onDragCancel}
+          >
+            <SortableContext items={instanciasDoGrupo.map((i) => i.id)}>
+              <div className={`mb-4 ${mobile ? "" : "grid grid-cols-2 items-start gap-4"}`}>
+                {listas.map((lista, listaIndex) => (
+                  <ListaOrdenavel
+                    key={listaIndex}
+                    itens={lista}
+                    listaIndex={listaIndex}
+                    posicaoInsercao={posicaoInsercao}
+                    idAtivo={activeId}
+                    renderItem={(i) => (
+                      <GavetaCardOrdenavel
+                        key={i.id}
+                        instancia={i}
+                        dados={gavetas[i.id]}
+                        mesReferencia={mesReferencia}
+                        janela={janela}
+                        labelLancar={LABEL_LANCAR[grupo]}
+                        onLancar={() => abrirFoco(i)}
+                        onEditarInstancia={() => setInstanciaEditando({ id: i.id, nome: i.nome, cor: i.cor })}
+                        onExcluirInstancia={() => setInstanciaParaExcluir(i)}
+                        onEditarLancamento={(l) => abrirEdicaoLancamento(i, l)}
+                        onExcluirLancamento={excluirLancamento}
+                        emArraste={emArraste}
+                      />
+                    )}
+                  />
+                ))}
+              </div>
+            </SortableContext>
+            <DragOverlay>
+              {itemAtivo && (
+                <GavetaCard
+                  instancia={itemAtivo}
+                  dados={gavetas[itemAtivo.id]}
+                  mesReferencia={mesReferencia}
+                  janela={janela}
+                  labelLancar={LABEL_LANCAR[grupo]}
+                  onEditarInstancia={() => {}}
+                  onExcluirInstancia={() => {}}
+                  onEditarLancamento={() => {}}
+                  onExcluirLancamento={() => {}}
+                  solido
+                />
+              )}
+            </DragOverlay>
+          </DndContext>
+
+          {erroOrdenacao && <Toast mensagem={erroOrdenacao} tipo="erro" onFechar={limparErroOrdenacao} />}
 
           {instanciasDoGrupo.length === 0 && (
             <div className="card-dominium mb-4 p-6 text-center text-sm text-cream-100/70">
@@ -774,6 +840,40 @@ export default function LancamentosPage() {
 
 const LABEL_JANELA: Record<string, string> = { mes: "no mês", "3m": "em 3 meses", "6m": "em 6 meses", "12m": "em 12 meses" };
 
+type ArrasteProps = {
+  setNodeRef: (node: HTMLElement | null) => void;
+  style: React.CSSProperties;
+  attributes: ReturnType<typeof useSortable>["attributes"];
+  listeners: ReturnType<typeof useSortable>["listeners"];
+  isDragging: boolean;
+};
+
+// Wrapper que só existe pra chamar useSortable — GavetaCard também é usado
+// fora de um SortableContext (a versão sticky do estado "foco", um card
+// único, não arrastável, e o DragOverlay), então o hook não pode viver
+// dentro dele. `emArraste` (true enquanto QUALQUER card estiver sendo
+// arrastado) suprime o transform aqui — os cards de fundo ficam parados
+// durante o arraste, só a barra guia se move. Ao soltar, `emArraste` volta
+// a false e o transform (agora o delta do FLIP pós-reorder, via
+// animateLayoutChanges) volta a valer, dando o reflow único e firme.
+function GavetaCardOrdenavel(
+  props: Omit<React.ComponentProps<typeof GavetaCard>, "arraste"> & { emArraste: boolean }
+) {
+  const { emArraste, ...resto } = props;
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: props.instancia.id,
+    transition: TRANSICAO_FIRME,
+  });
+  const arraste: ArrasteProps = {
+    setNodeRef,
+    style: { transform: emArraste ? undefined : CSS.Transform.toString(transform), transition },
+    attributes,
+    listeners,
+    isDragging,
+  };
+  return <GavetaCard {...resto} arraste={arraste} />;
+}
+
 function GavetaCard({
   instancia,
   dados,
@@ -786,6 +886,8 @@ function GavetaCard({
   onEditarLancamento,
   onExcluirLancamento,
   sticky,
+  arraste,
+  solido,
 }: {
   instancia: Instancia;
   dados?: DadosGaveta;
@@ -798,14 +900,26 @@ function GavetaCard({
   onEditarLancamento: (l: LancamentoLocal) => void;
   onExcluirLancamento: (id: string) => void;
   sticky?: boolean;
+  arraste?: ArrasteProps;
+  // Cópia sólida renderizada dentro do <DragOverlay> — sempre opaca, do
+  // mesmo tamanho, com sombra de "flutuando". O card original na lista vira
+  // só um placeholder esmaecido enquanto isso.
+  solido?: boolean;
 }) {
   const lancamentos = dados?.lancamentos || [];
   const totalJanela = dados?.totalJanela || 0;
   const carregando = dados?.carregando ?? true;
 
   return (
-    <div className={`card-dominium p-4 ${sticky ? "lg:sticky lg:top-8" : ""}`}>
+    <div
+      ref={arraste?.setNodeRef}
+      style={arraste?.style}
+      className={`card-dominium p-4 ${sticky ? "lg:sticky lg:top-8" : ""} ${
+        solido ? "shadow-2xl shadow-black/50" : arraste?.isDragging ? "opacity-30" : ""
+      }`}
+    >
       <div className="mb-1 flex items-center gap-2">
+        {arraste && <AlcaArrastar attributes={arraste.attributes} listeners={arraste.listeners} />}
         <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: instancia.cor }} />
         <p className="min-w-0 flex-1 truncate text-sm font-medium" style={{ color: instancia.cor }}>
           {instancia.nome}
@@ -858,7 +972,7 @@ function GavetaCard({
         <p className="py-3 text-center text-sm text-cream-100/50">Sem lançamentos.</p>
       )}
 
-      <div className="flex flex-col gap-2 lg:max-h-[calc(100vh-14rem)] lg:overflow-y-auto lg:pr-1">
+      <div className="flex flex-col gap-2">
         {lancamentos.map((l) => {
           const sincronizado = !l.syncStatus || l.syncStatus === "synced";
           return (

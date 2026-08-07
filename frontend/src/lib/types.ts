@@ -43,6 +43,10 @@ export type Instancia = {
   cor: string;
   ativa: boolean;
   criadoEm: string;
+  // 0 = coluna esquerda, 1 = coluna direita — ordenacao manual por contexto,
+  // ver OrdenacaoInstancia no backend. O contexto exato depende de qual tela
+  // fez a requisicao (lancamentos-gasto/receita, pagamentos ou reserva).
+  coluna: number;
 };
 
 export type TipoLancamento = "fixo" | "temporario";
@@ -101,6 +105,7 @@ export type InstanciaEmAberto = {
   id: string;
   nome: string;
   cor: string;
+  coluna: number;
   totalAberto: number;
   itens: ItemEmAberto[];
 };
