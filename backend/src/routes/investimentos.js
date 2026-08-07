@@ -5,7 +5,7 @@ const prisma = require('../lib/prisma');
 const { autenticar, exigirRole } = require('../middleware/auth');
 const { asyncHandler } = require('../utils/asyncHandler');
 const { mesAtual, somarMeses, parseMes } = require('../utils/mes');
-const { ordenarPorContexto, criarOrdenacoesIniciais } = require('../utils/ordenacaoInstancia');
+const { ordenarPorContexto, colunaDoContexto, criarOrdenacoesIniciais } = require('../utils/ordenacaoInstancia');
 const {
   valorAcumuladoAporte,
   parcelasDecorridas,
@@ -67,9 +67,10 @@ router.get('/', asyncHandler(async (req, res) => {
     orderBy: { criadoEm: 'asc' },
     include: { ordenacoes: { where: { contexto: 'reserva' } } },
   });
-  const instancias = ordenarPorContexto(instanciasBrutas, 'reserva').map(
-    ({ ordenacoes, ...instancia }) => instancia
-  );
+  const instancias = ordenarPorContexto(instanciasBrutas, 'reserva').map((i) => {
+    const { ordenacoes, ...instancia } = i;
+    return { ...instancia, coluna: colunaDoContexto(i, 'reserva') };
+  });
 
   const contas = await Promise.all(instancias.map(montarConta));
 

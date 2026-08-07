@@ -4,7 +4,7 @@ const prisma = require('../lib/prisma');
 const { autenticar, exigirRole } = require('../middleware/auth');
 const { somarMeses, mesAtual, ultimoDiaDoMes, compararMeses } = require('../utils/mes');
 const { asyncHandler } = require('../utils/asyncHandler');
-const { ordenarPorContexto } = require('../utils/ordenacaoInstancia');
+const { ordenarPorContexto, colunaDoContexto } = require('../utils/ordenacaoInstancia');
 
 const router = express.Router();
 router.use(autenticar, exigirRole('USER'));
@@ -69,6 +69,7 @@ router.get('/em-aberto', asyncHandler(async (req, res) => {
       id: instancia.id,
       nome: instancia.nome,
       cor: instancia.cor,
+      coluna: colunaDoContexto(instancia, 'pagamentos'),
       totalAberto: itensEmAberto(itens).reduce((acc, i) => acc + i.valor, 0),
       itens,
     });
