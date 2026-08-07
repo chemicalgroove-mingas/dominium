@@ -66,11 +66,14 @@ model Instancia {
 // contexto: lancamentos-gasto | lancamentos-receita | pagamentos | reserva —
 // ordem manual (drag-and-drop) independente por tela; uma instancia pode
 // aparecer em mais de um contexto (ex. gasto -> lancamentos-gasto e pagamentos).
+// coluna: 0 = esquerda, 1 = direita (masonry de 2 colunas por contexto) —
+// ordem passa a ser a posicao DENTRO da coluna, nao mais global.
 model OrdenacaoInstancia {
   id          String    @id @default(uuid())
   instanciaId String
   instancia   Instancia @relation(fields: [instanciaId], references: [id], onDelete: Cascade)
   contexto    String
+  coluna      Int       @default(0)
   ordem       Int
   criadoEm    DateTime  @default(now())
 
