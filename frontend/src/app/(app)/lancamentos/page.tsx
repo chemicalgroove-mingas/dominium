@@ -125,8 +125,9 @@ export default function LancamentosPage() {
     onDragMove,
     onDragEnd,
     onDragCancel,
+    activeId,
     emArraste,
-    indiceInsercao,
+    posicaoInsercao,
     itemAtivo,
     erro: erroOrdenacao,
     limparErro: limparErroOrdenacao,
@@ -462,7 +463,8 @@ export default function LancamentosPage() {
               <div className="mb-4">
                 <ColunasMasonry
                   itens={instanciasDoGrupo}
-                  indiceInsercao={indiceInsercao}
+                  posicaoInsercao={posicaoInsercao}
+                  idAtivo={activeId}
                   renderItem={(i) => (
                     <GavetaCardOrdenavel
                       key={i.id}

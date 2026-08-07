@@ -1,6 +1,8 @@
 "use client";
 
 import type { ReactElement } from "react";
+import { metadeMasonry, type ColunaMasonry } from "@/lib/masonryOrdenacao";
+import type { PosicaoMasonry } from "@/hooks/useOrdenacaoArrastavel";
 import { BarraGuiaArraste } from "./BarraGuiaArraste";
 
 // Masonry de 2 colunas SEM CSS columns (quebraria o drag-and-drop): a
@@ -15,44 +17,47 @@ import { BarraGuiaArraste } from "./BarraGuiaArraste";
 // completa via `itens` — a divisão em colunas é só de renderização.
 export function ColunasMasonry<T extends { id: string }>({
   itens,
-  indiceInsercao,
+  posicaoInsercao,
+  idAtivo,
   renderItem,
 }: {
   itens: T[];
-  indiceInsercao: number | null;
+  posicaoInsercao: PosicaoMasonry | null;
+  idAtivo: string | null;
   renderItem: (item: T) => ReactElement;
 }) {
-  const meio = Math.ceil(itens.length / 2);
+  const meio = metadeMasonry(itens.length);
   const esquerda = itens.slice(0, meio);
   const direita = itens.slice(meio);
 
-  // `mostrarBarraFinal` só é true pra última coluna (direita): o índice
-  // `meio` (fim da esquerda == topo da direita) é o mesmo número nas duas
-  // checagens — sem essa flag, as duas colunas desenhariam uma barra ao
-  // mesmo tempo pro mesmo `indiceInsercao`. A fronteira sempre resolve pro
-  // topo da direita (só a checagem "antes do primeiro item" de `coluna`
-  // cobre isso); a checagem de "depois do último item" só faz sentido pra
-  // coluna final (inserir no fim de tudo). Ver useOrdenacaoArrastavel —
-  // essa mesma fronteira usa a MESMA convenção do lado do onDragEnd.
-  function coluna(lista: T[], offset: number, mostrarBarraFinal: boolean) {
+  // `posicaoInsercao` já vem normalizado (useOrdenacaoArrastavel) pra
+  // sempre representar onde o card vai cair de fato — a mesma fonte usada
+  // pelo onDragEnd pra montar o arrayMove. Aqui só espelhamos essa posição
+  // visualmente: a contagem local pula o item ativo (que ainda está
+  // renderizado, esmaecido, no próprio lugar) — é a mesma exclusão que
+  // colisaoMasonry já faz ao calcular `posicaoLocal`, então os dois nunca
+  // divergem.
+  function coluna(lista: T[], colunaId: ColunaMasonry) {
     const nos: ReactElement[] = [];
-    lista.forEach((item, i) => {
-      const indiceGlobal = offset + i;
-      if (indiceInsercao === indiceGlobal) {
-        nos.push(<BarraGuiaArraste key={`guia-${indiceGlobal}`} />);
+    let posicaoLocal = 0;
+    lista.forEach((item) => {
+      const ehAtivo = item.id === idAtivo;
+      if (!ehAtivo && posicaoInsercao?.coluna === colunaId && posicaoInsercao.posicaoLocal === posicaoLocal) {
+        nos.push(<BarraGuiaArraste key={`guia-${colunaId}-${posicaoLocal}`} />);
       }
       nos.push(renderItem(item));
+      if (!ehAtivo) posicaoLocal += 1;
     });
-    if (mostrarBarraFinal && indiceInsercao === offset + lista.length) {
-      nos.push(<BarraGuiaArraste key={`guia-${offset + lista.length}`} />);
+    if (posicaoInsercao?.coluna === colunaId && posicaoInsercao.posicaoLocal === posicaoLocal) {
+      nos.push(<BarraGuiaArraste key={`guia-${colunaId}-fim`} />);
     }
     return nos;
   }
 
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:items-start">
-      <div className="flex flex-col gap-4">{coluna(esquerda, 0, false)}</div>
-      <div className="flex flex-col gap-4">{coluna(direita, meio, true)}</div>
+      <div className="flex flex-col gap-4">{coluna(esquerda, "esquerda")}</div>
+      <div className="flex flex-col gap-4">{coluna(direita, "direita")}</div>
     </div>
   );
 }

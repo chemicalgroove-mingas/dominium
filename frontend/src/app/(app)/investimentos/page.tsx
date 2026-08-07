@@ -159,8 +159,9 @@ export default function InvestimentosPage() {
     onDragMove,
     onDragEnd,
     onDragCancel,
+    activeId,
     emArraste,
-    indiceInsercao,
+    posicaoInsercao,
     itemAtivo,
     erro: erroOrdenacao,
     limparErro: limparErroOrdenacao,
@@ -380,7 +381,8 @@ export default function InvestimentosPage() {
               <div className="mb-4">
                 <ColunasMasonry
                   itens={contas}
-                  indiceInsercao={indiceInsercao}
+                  posicaoInsercao={posicaoInsercao}
+                  idAtivo={activeId}
                   renderItem={(conta) => (
                     <ItemArrastavel key={conta.id} id={conta.id} emArraste={emArraste}>
                       {(arraste) => (
