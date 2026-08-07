@@ -2,14 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Clock, Pencil, Plus, Trash2 } from "lucide-react";
-import { DndContext, DragOverlay, closestCenter } from "@dnd-kit/core";
+import { DndContext, DragOverlay } from "@dnd-kit/core";
 import { SortableContext, rectSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useInstancias } from "@/contexts/InstanciasContext";
 import { useRecorte } from "@/contexts/RecorteContext";
-import { useOrdenacaoArrastavel } from "@/hooks/useOrdenacaoArrastavel";
+import { useOrdenacaoArrastavel, TRANSICAO_FIRME } from "@/hooks/useOrdenacaoArrastavel";
 import { JanelaSelector } from "@/components/dominium/JanelaSelector";
 import { ResumoDashboard } from "@/components/dominium/ResumoDashboard";
 import { SyncStatusBadge } from "@/components/dominium/SyncStatusBadge";
@@ -118,6 +118,8 @@ export default function LancamentosPage() {
   );
   const {
     sensors,
+    collisionDetection,
+    measuring,
     onDragStart,
     onDragEnd,
     onDragCancel,
@@ -445,7 +447,8 @@ export default function LancamentosPage() {
         <>
           <DndContext
             sensors={sensors}
-            collisionDetection={closestCenter}
+            collisionDetection={collisionDetection}
+            measuring={measuring}
             onDragStart={onDragStart}
             onDragEnd={onDragEnd}
             onDragCancel={onDragCancel}
@@ -837,6 +840,7 @@ type ArrasteProps = {
 function GavetaCardOrdenavel(props: Omit<React.ComponentProps<typeof GavetaCard>, "arraste">) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: props.instancia.id,
+    transition: TRANSICAO_FIRME,
   });
   const arraste: ArrasteProps = {
     setNodeRef,

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Check, Clock, Palette, Pencil, Plus, Trash2, X } from "lucide-react";
-import { DndContext, DragOverlay, closestCenter } from "@dnd-kit/core";
+import { DndContext, DragOverlay } from "@dnd-kit/core";
 import { SortableContext, rectSortingStrategy } from "@dnd-kit/sortable";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
@@ -152,6 +152,8 @@ export default function InvestimentosPage() {
 
   const {
     sensors,
+    collisionDetection,
+    measuring,
     onDragStart,
     onDragEnd,
     onDragCancel,
@@ -363,7 +365,8 @@ export default function InvestimentosPage() {
         <>
           <DndContext
             sensors={sensors}
-            collisionDetection={closestCenter}
+            collisionDetection={collisionDetection}
+            measuring={measuring}
             onDragStart={onDragStart}
             onDragEnd={onDragEnd}
             onDragCancel={onDragCancel}

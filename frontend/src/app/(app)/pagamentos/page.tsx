@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, Check, Undo2 } from "lucide-react";
-import { DndContext, DragOverlay, closestCenter } from "@dnd-kit/core";
+import { DndContext, DragOverlay } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { api, ApiError } from "@/lib/api";
@@ -13,7 +13,7 @@ import { CampoMoeda } from "@/components/dominium/CampoMoeda";
 import { AlcaArrastar } from "@/components/dominium/AlcaArrastar";
 import { Toast } from "@/components/dominium/Toast";
 import { useAuth } from "@/contexts/AuthContext";
-import { useOrdenacaoArrastavel } from "@/hooks/useOrdenacaoArrastavel";
+import { useOrdenacaoArrastavel, TRANSICAO_FIRME } from "@/hooks/useOrdenacaoArrastavel";
 import { lerSnapshot, salvarSnapshot } from "@/lib/offline/snapshots";
 import type { InstanciaEmAberto } from "@/lib/types";
 
@@ -146,6 +146,8 @@ export default function PagamentosPage() {
 
   const {
     sensors,
+    collisionDetection,
+    measuring,
     onDragStart,
     onDragEnd,
     onDragCancel,
@@ -226,7 +228,8 @@ export default function PagamentosPage() {
 
       <DndContext
         sensors={sensors}
-        collisionDetection={closestCenter}
+        collisionDetection={collisionDetection}
+        measuring={measuring}
         onDragStart={onDragStart}
         onDragEnd={onDragEnd}
         onDragCancel={onDragCancel}
@@ -302,6 +305,7 @@ type ArrasteProps = {
 function CardPagamentoInstanciaOrdenavel(props: Omit<React.ComponentProps<typeof CardPagamentoInstancia>, "arraste">) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: props.instancia.id,
+    transition: TRANSICAO_FIRME,
   });
   const arraste: ArrasteProps = {
     setNodeRef,
