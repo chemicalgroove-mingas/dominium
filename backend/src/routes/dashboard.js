@@ -1,13 +1,13 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
-const { autenticar, exigirRole } = require('../middleware/auth');
+const { autenticar, exigirRole, exigirLicencaParaEscrita } = require('../middleware/auth');
 const { mesAtual } = require('../utils/mes');
 const { janelaValida } = require('../utils/projecao');
 const { calcularResumo } = require('../utils/resumoFinanceiro');
 const { asyncHandler } = require('../utils/asyncHandler');
 
 const router = express.Router();
-router.use(autenticar, exigirRole('USER'));
+router.use(autenticar, exigirRole('USER'), exigirLicencaParaEscrita);
 
 router.get('/', asyncHandler(async (req, res) => {
   const usuarioId = req.usuario.id;

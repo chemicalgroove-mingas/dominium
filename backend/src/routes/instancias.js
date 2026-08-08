@@ -1,7 +1,7 @@
 const express = require('express');
 const { z } = require('zod');
 const prisma = require('../lib/prisma');
-const { autenticar, exigirRole } = require('../middleware/auth');
+const { autenticar, exigirRole, exigirLicencaParaEscrita } = require('../middleware/auth');
 const { asyncHandler } = require('../utils/asyncHandler');
 const {
   CONTEXTOS,
@@ -12,7 +12,7 @@ const {
 } = require('../utils/ordenacaoInstancia');
 
 const router = express.Router();
-router.use(autenticar, exigirRole('USER'));
+router.use(autenticar, exigirRole('USER'), exigirLicencaParaEscrita);
 
 const GRUPOS = ['gasto', 'receita', 'investimento'];
 const SUBGRUPOS = ['pessoal', 'patrimonial'];

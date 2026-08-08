@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const prisma = require('../lib/prisma');
 const { asyncHandler } = require('../utils/asyncHandler');
+const { licencaVigente } = require('../utils/licenca');
 
 const autenticar = asyncHandler(async function autenticar(req, res, next) {
   const token = req.cookies?.dominium_token;
@@ -18,9 +19,11 @@ const autenticar = asyncHandler(async function autenticar(req, res, next) {
 
   // Role/status sempre lidos do banco (nunca confiar apenas no payload do token):
   // uma conta desativada ou excluida precisa perder acesso imediatamente, mesmo
-  // com um JWT ainda valido.
+  // com um JWT ainda valido. A licenca vem no mesmo `include` — um round-trip
+  // so, ja que praticamente toda requisicao autenticada precisa dos dois.
   const usuario = await prisma.usuario.findFirst({
     where: { id: payload.id, deletadoEm: null },
+    include: { licenca: true },
   });
 
   if (!usuario) {
@@ -38,8 +41,38 @@ const autenticar = asyncHandler(async function autenticar(req, res, next) {
     role: usuario.role,
     deveTrocarSenha: usuario.deveTrocarSenha,
   };
+  // null quando a conta nao tem licenca — o middleware de escrita trata isso
+  // como "nao pode escrever", igual a uma licenca vencida.
+  req.licenca = usuario.licenca ?? null;
   next();
 });
+
+// Autorizacao de ESCRITA por licenca. Modo estrito: licenca vencida nao cria,
+// nao edita e nao exclui — sem excecao para "corrigir" registro existente.
+//
+// Leitura nunca e bloqueada: os dados continuam sendo do usuario, e ele segue
+// com acesso a dashboard, relatorio, PDF e exportacao mesmo sem licenca.
+//
+// A avaliacao usa o relogio do servidor (default de licencaVigente). Nada que
+// venha do cliente — corpo, header, query — participa dessa decisao.
+function exigirLicencaParaEscrita(req, res, next) {
+  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') {
+    return next();
+  }
+
+  if (licencaVigente(req.licenca)) {
+    return next();
+  }
+
+  // Codigo estavel em `erro` — o frontend (PR F) depende dessa string para
+  // distinguir licenca expirada de qualquer outro 403.
+  return res.status(403).json({
+    erro: 'LICENCA_EXPIRADA',
+    mensagem:
+      'Sua licença expirou. Você continua com acesso aos seus dados, mas não pode registrar novos lançamentos.',
+    expiraEm: req.licenca ? req.licenca.expiraEm.toISOString() : null,
+  });
+}
 
 function exigirRole(role) {
   return (req, res, next) => {
@@ -71,4 +104,4 @@ const cookieOptions = {
   path: '/',
 };
 
-module.exports = { autenticar, exigirRole, gerarToken, cookieOptions };
+module.exports = { autenticar, exigirRole, exigirLicencaParaEscrita, gerarToken, cookieOptions };

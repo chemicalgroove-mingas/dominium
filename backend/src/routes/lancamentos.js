@@ -2,14 +2,14 @@ const express = require('express');
 const { z } = require('zod');
 const { Prisma } = require('@prisma/client');
 const prisma = require('../lib/prisma');
-const { autenticar, exigirRole } = require('../middleware/auth');
+const { autenticar, exigirRole, exigirLicencaParaEscrita } = require('../middleware/auth');
 const { somarMeses, mesAtual, parseMes } = require('../utils/mes');
 const { janelaValida, limitesJanela, projetarLancamentoNaJanela, parcelasNaJanela } = require('../utils/projecao');
 const { calcularPlanoTemporario } = require('../utils/parcelamento');
 const { asyncHandler } = require('../utils/asyncHandler');
 
 const router = express.Router();
-router.use(autenticar, exigirRole('USER'));
+router.use(autenticar, exigirRole('USER'), exigirLicencaParaEscrita);
 
 const mesSchema = z.string().regex(/^\d{4}-\d{2}$/, 'Use o formato AAAA-MM.');
 

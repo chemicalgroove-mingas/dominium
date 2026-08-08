@@ -15,7 +15,9 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
-    "db:seed": "node prisma/seed.js"
+    "db:seed": "node prisma/seed.js",
+    "test": "node scripts/prepararBancoDeTeste.js && node --test --test-concurrency=1 \"test/**/*.test.js\"",
+    "licenca:set": "node scripts/setLicenca.js"
   },
   "prisma": {
     "seed": "node prisma/seed.js"

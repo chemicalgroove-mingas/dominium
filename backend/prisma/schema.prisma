@@ -29,6 +29,55 @@ model Usuario {
   pagamentos    Pagamento[]
   investimentos Investimento[]
   vouchers      Voucher[]
+  licenca       Licenca?
+  concessoes    ConcessaoLicenca[]
+}
+
+// Direito de ESCRITA da conta, e so isso. A conta em si nunca vence: licenca
+// expirada mantem login, leitura, relatorio, PDF e exportacao — bloqueia
+// apenas a gravacao de dados novos.
+//
+// Eixo de estado proprio, deliberadamente separado dos outros dois, que
+// respondem perguntas diferentes e nunca devem ser consolidados:
+//   Usuario.status     -> a plataforma suspendeu esta conta?
+//   Usuario.deletadoEm -> a conta foi excluida?
+//   Licenca.expiraEm   -> esta conta pode escrever agora?
+//
+// Uma linha corrente por usuario (@unique em usuarioId): o historico de como
+// se chegou nesta validade vive em ConcessaoLicenca, nunca aqui.
+//
+// origem e String + CHECK (nao enum do Prisma), igual ao resto do schema:
+// valores futuros (APPLE_IAP, GOOGLE_PLAY) entram so alterando a CHECK, sem
+// migration de tipo.
+model Licenca {
+  id           String   @id @default(uuid())
+  usuarioId    String   @unique
+  usuario      Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  inicioEm     DateTime
+  expiraEm     DateTime
+  origem       String
+  atualizadoEm DateTime @updatedAt
+  criadoEm     DateTime @default(now())
+
+  @@index([expiraEm])
+}
+
+// Historico de auditoria das concessoes — append-only. Nunca sofre UPDATE nem
+// DELETE: cada renovacao acrescenta uma linha registrando de onde veio e como
+// a validade mudou (expiraEmAnterior -> expiraEmNovo). E o unico registro de
+// por que uma licenca tem a data que tem.
+model ConcessaoLicenca {
+  id               String    @id @default(uuid())
+  usuarioId        String
+  usuario          Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  dias             Int
+  origem           String
+  referenciaId     String?
+  expiraEmAnterior DateTime?
+  expiraEmNovo     DateTime
+  aplicadaEm       DateTime  @default(now())
+
+  @@index([usuarioId])
 }
 
 // status: ATIVO | USADO | REVOGADO | EXPIRADO

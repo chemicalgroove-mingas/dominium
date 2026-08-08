@@ -1,6 +1,6 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
-const { autenticar, exigirRole } = require('../middleware/auth');
+const { autenticar, exigirRole, exigirLicencaParaEscrita } = require('../middleware/auth');
 const { mesAtual } = require('../utils/mes');
 const { janelaValida, limitesJanela, parcelasNaJanela } = require('../utils/projecao');
 const { calcularResumo } = require('../utils/resumoFinanceiro');
@@ -8,7 +8,7 @@ const { asyncHandler } = require('../utils/asyncHandler');
 const { gerarRelatorioPdfBuffer } = require('../lib/relatorioPdf');
 
 const router = express.Router();
-router.use(autenticar, exigirRole('USER'));
+router.use(autenticar, exigirRole('USER'), exigirLicencaParaEscrita);
 
 // Le e normaliza os parametros de recorte (mesReferencia/janela/direcao) da
 // query string — compartilhado pelas rotas JSON e PDF pra nao divergir.

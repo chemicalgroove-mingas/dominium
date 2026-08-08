@@ -2,7 +2,7 @@ const express = require('express');
 const { z } = require('zod');
 const { Prisma } = require('@prisma/client');
 const prisma = require('../lib/prisma');
-const { autenticar, exigirRole } = require('../middleware/auth');
+const { autenticar, exigirRole, exigirLicencaParaEscrita } = require('../middleware/auth');
 const { asyncHandler } = require('../utils/asyncHandler');
 const { mesAtual, somarMeses, parseMes } = require('../utils/mes');
 const { ordenarPorContexto, colunaDoContexto, criarOrdenacoesIniciais } = require('../utils/ordenacaoInstancia');
@@ -17,7 +17,7 @@ const {
 const { EPS, calcularPlanoTemporario } = require('../utils/parcelamento');
 
 const router = express.Router();
-router.use(autenticar, exigirRole('USER'));
+router.use(autenticar, exigirRole('USER'), exigirLicencaParaEscrita);
 
 const SUBGRUPOS = ['pessoal', 'patrimonial'];
 

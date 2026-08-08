@@ -7,6 +7,15 @@ const { normalizarLogin } = require('../utils/login');
 const { gerarToken, cookieOptions, autenticar } = require('../middleware/auth');
 const { limiteLogin, limiteCadastro } = require('../middleware/rateLimit');
 const { asyncHandler } = require('../utils/asyncHandler');
+const { concederLicenca, licencaPublica } = require('../utils/licenca');
+
+// Duracao da licenca concedida no cadastro. PROVISORIO: no PR E o proprio
+// voucher passa a carregar os dias e esta variavel sai de cena. Lido a cada
+// chamada (nao no import) pra o teste conseguir variar sem recarregar o modulo.
+function licencaPadraoDias() {
+  const bruto = Number(process.env.LICENCA_PADRAO_DIAS ?? 30);
+  return Number.isInteger(bruto) && bruto > 0 ? bruto : 30;
+}
 
 const router = express.Router();
 
@@ -83,6 +92,26 @@ router.post('/cadastro', limiteCadastro, asyncHandler(async (req, res) => {
         throw new Error('VOUCHER_INVALIDO');
       }
 
+      // O UPDATE acima ja vinculou o voucher a este usuario, entao esta leitura
+      // e' inequivoca. Feita a parte, em vez de um RETURNING, pra manter o
+      // comando de consumo exatamente como estava — ele ja e atomico e correto,
+      // e nao ha motivo pra reescreve-lo so pra obter o id.
+      const voucherConsumido = await tx.voucher.findFirst({
+        where: { codigo: codigoVoucher, usuarioId: novoUsuario.id },
+        select: { id: true },
+      });
+
+      // Toda conta nova precisa nascer com licenca: sem isso ela logaria sem
+      // conseguir gravar nada. Na MESMA transacao — se a concessao falhar, o
+      // usuario nao e criado e o voucher nao e consumido.
+      // PROVISORIO ate o PR E, quando o `dias` vem do proprio voucher.
+      await concederLicenca(tx, {
+        usuarioId: novoUsuario.id,
+        dias: licencaPadraoDias(),
+        origem: 'VOUCHER',
+        referenciaId: voucherConsumido ? voucherConsumido.id : null,
+      });
+
       return novoUsuario;
     });
 
@@ -138,8 +167,12 @@ router.post('/logout', (req, res) => {
   return res.json({ ok: true });
 });
 
+// `licenca` e sempre a chave presente: null quando a conta nao tem licenca,
+// nunca omitida — o cliente precisa distinguir "sem licenca" de "API antiga".
+// diasRestantes vem calculado do servidor (o cliente nunca deriva isso do
+// relogio local, que pode estar errado ou adulterado).
 router.get('/me', autenticar, asyncHandler(async (req, res) => {
-  return res.json({ usuario: req.usuario });
+  return res.json({ usuario: req.usuario, licenca: licencaPublica(req.licenca) });
 }));
 
 const trocarSenhaSchema = z
